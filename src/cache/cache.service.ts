@@ -31,6 +31,8 @@ function buildRedisClient(): Redis {
     host: config.redis.host,
     port: config.redis.port,
     ...(config.redis.password ? { password: config.redis.password } : {}),
+    // Upstash requires TLS — enable via REDIS_TLS=true
+    ...(config.redis.tls ? { tls: {} } : {}),
     connectTimeout: config.redis.connectTimeout,
     // Do not block the process on connection errors
     lazyConnect: true,

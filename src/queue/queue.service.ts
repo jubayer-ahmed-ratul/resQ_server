@@ -34,8 +34,8 @@ export function buildRedisConnection(): ConnectionOptions {
     host: config.redis.host,
     port: config.redis.port,
     ...(config.redis.password ? { password: config.redis.password } : {}),
-    // BullMQ recommendation: disable auto-reconnect on the client used by Queue
-    // (the Worker manages its own connection).
+    // Upstash requires TLS — enable via REDIS_TLS=true
+    ...(config.redis.tls ? { tls: {} } : {}),
     maxRetriesPerRequest: null,
   };
 }

@@ -16,11 +16,13 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: REDIS_HOST
-        sync: false        # Upstash Redis host দাও
+        value: vast-bulldog-134131.upstash.io
       - key: REDIS_PORT
         value: 6379
       - key: REDIS_PASSWORD
-        sync: false        # Upstash Redis password দাও
+        sync: false        # Render dashboard-এ manually দাও
+      - key: REDIS_TLS
+        value: "true"
       - key: CACHE_DEFAULT_TTL_SECONDS
         value: 60
       - key: WORKER_CONCURRENCY

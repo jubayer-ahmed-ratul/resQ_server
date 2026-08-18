@@ -39,6 +39,8 @@ const config = {
     port:     int('REDIS_PORT', 6379),
     password: process.env['REDIS_PASSWORD'] ?? undefined,
     connectTimeout: int('REDIS_CONNECTION_TIMEOUT', 5000),
+    // Upstash (and most cloud Redis) requires TLS — set REDIS_TLS=true
+    tls: process.env['REDIS_TLS'] === 'true',
   },
 
   worker: {
