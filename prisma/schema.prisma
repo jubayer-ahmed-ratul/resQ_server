@@ -1,0 +1,360 @@
+// Prisma schema for the Intelligent Emergency Response & Resource Optimization Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  COORDINATOR
+  OPERATOR
+  CITIZEN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  PENDING
+  VALIDATED
+  PROCESSING
+  ASSIGNED
+  DISPATCHED
+  RESOLVED
+  CANCELLED
+}
+
+enum TimeSensitivity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ResourceType {
+  AMBULANCE
+  RESCUE_TEAM
+  HELICOPTER
+  OTHER
+}
+
+enum ResourceStatus {
+  AVAILABLE
+  BUSY
+  UNAVAILABLE
+  MAINTENANCE
+  FAILED
+}
+
+enum HospitalStatus {
+  OPERATIONAL
+  LIMITED
+  CLOSED
+}
+
+enum AssignmentStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum DecisionType {
+  PRIORITY_CALCULATION
+  RESOURCE_RECOMMENDATION
+  RESOURCE_ASSIGNMENT
+  RESOURCE_REJECTION
+}
+
+enum ReoptimizationTrigger {
+  RESOURCE_FAILURE
+  RESOURCE_UNAVAILABLE
+  RESOURCE_MAINTENANCE
+  ACCESS_CONDITION_CHANGE
+  HIGHER_PRIORITY_INCIDENT
+  CAPACITY_CHANGE
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  password  String
+  role      Role       @default(CITIZEN)
+  status    UserStatus @default(ACTIVE)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  incidents Incident[]
+
+  @@map("users")
+}
+
+model Incident {
+  id String @id @default(cuid())
+
+  title       String
+  description String
+
+  severity        IncidentSeverity
+  status          IncidentStatus   @default(PENDING)
+  timeSensitivity TimeSensitivity
+
+  affectedPeople Int
+
+  latitude  Float
+  longitude Float
+
+  environmentalCondition String?
+
+  resourceRequirements Json @default("[]")
+
+  priorityScore Float?
+
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+
+  assignments  Assignment[]
+  decisionLogs DecisionLog[]
+  reoptimizationLogs ReoptimizationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ─── Indexes (Part 12) ─────────────────────────────────────────────────────
+  // status: most queries filter by status (PENDING, VALIDATED, ASSIGNED, etc.)
+  // priority-sort: coordinators list incidents ordered by priorityScore DESC
+  // severity: filter by severity level (HIGH, CRITICAL dashboard views)
+  // createdAt: time-range queries and default ordering
+  @@index([status])
+  @@index([priorityScore(sort: Desc)])
+  @@index([severity])
+  @@index([createdAt])
+  @@map("incidents")
+}
+
+model Resource {
+  id   String @id @default(cuid())
+  name String
+
+  type   ResourceType
+  status ResourceStatus @default(AVAILABLE)
+
+  latitude  Float
+  longitude Float
+
+  capacity Int @default(1)
+
+  assignments  Assignment[]
+  decisionLogs DecisionLog[]
+  reoptimizationLogsAsPrevious ReoptimizationLog[] @relation("ReoptimizationPreviousResource")
+  reoptimizationLogsAsNew      ReoptimizationLog[] @relation("ReoptimizationNewResource")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ─── Indexes (Part 12) ─────────────────────────────────────────────────────
+  // status: allocation engine filters by AVAILABLE status constantly
+  // type: allocation engine filters by resource type to match requirements
+  // (status, type): composite for allocation engine's combined filter
+  @@index([status])
+  @@index([type])
+  @@index([status, type])
+  @@map("resources")
+}
+
+model Hospital {
+  id   String @id @default(cuid())
+  name String
+
+  latitude  Float
+  longitude Float
+
+  bedCapacity      Int
+  availableBeds    Int
+  icuCapacity      Int
+  availableICUBeds Int
+
+  status HospitalStatus @default(OPERATIONAL)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ─── Indexes (Part 12) ─────────────────────────────────────────────────────
+  // status: coordinators frequently filter by OPERATIONAL hospitals only
+  @@index([status])
+  @@map("hospitals")
+}
+
+model Assignment {
+  id String @id @default(cuid())
+
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id])
+
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id])
+
+  status AssignmentStatus @default(ACTIVE)
+
+  assignedAt DateTime  @default(now())
+  releasedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reoptimizationLogs ReoptimizationLog[]
+
+  @@index([resourceId])
+  @@index([incidentId])
+  @@index([status])
+  @@map("assignments")
+}
+
+model DecisionLog {
+  id String @id @default(cuid())
+
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id])
+
+  // Nullable — only set when the decision involves a specific resource
+  selectedResourceId String?
+  selectedResource   Resource? @relation(fields: [selectedResourceId], references: [id])
+
+  decisionType DecisionType
+
+  // Populated for PRIORITY_CALCULATION decisions
+  priorityScore Float?
+
+  // Full structured explanation — factor breakdowns, candidate evaluations,
+  // rejection reasons, algorithm metadata. Stored as JSON for flexibility.
+  explanation Json
+
+  // Algorithm identity — allows future algorithm changes to be distinguished
+  algorithmVersion String
+
+  createdAt DateTime @default(now())
+
+  @@index([incidentId])
+  @@index([decisionType])
+  @@map("decision_logs")
+}
+
+model ReoptimizationLog {
+  id String @id @default(cuid())
+
+  incidentId   String
+  incident     Incident @relation(fields: [incidentId], references: [id])
+
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id])
+
+  trigger ReoptimizationTrigger
+
+  previousResourceId String
+  previousResource   Resource @relation("ReoptimizationPreviousResource", fields: [previousResourceId], references: [id])
+
+  // Nullable — null when no replacement was found
+  newResourceId String?
+  newResource   Resource? @relation("ReoptimizationNewResource", fields: [newResourceId], references: [id])
+
+  // Human-readable explanation of why re-optimization occurred
+  reason String
+
+  // Link to the DecisionLog created for this re-optimization (nullable — only
+  // present when a replacement was successfully created)
+  decisionLogId String?
+
+  // Whether a replacement was actually made
+  replaced Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([incidentId])
+  @@index([assignmentId])
+  @@index([trigger])
+  @@map("reoptimization_logs")
+}
+
+// ─── Outbox Pattern ───────────────────────────────────────────────────────────
+// Outbox events are written inside the same DB transaction as the business
+// operation they describe. A background publisher polls PENDING events and
+// pushes them to the BullMQ queue. This prevents event loss when the queue
+// is temporarily unavailable.
+
+model OutboxEvent {
+  id          String           @id @default(cuid())
+  eventId     String           @unique  // matches DomainEvent.eventId
+  eventType   String
+  payload     Json
+  status      OutboxEventStatus @default(PENDING)
+  attempts    Int               @default(0)
+  createdAt   DateTime          @default(now())
+  publishedAt DateTime?
+
+  // ─── Indexes (Part 12) ─────────────────────────────────────────────────────
+  // status: outbox publisher polls WHERE status='PENDING' ORDER BY createdAt — both needed
+  // (status, createdAt): composite for the publisher's polling query pattern
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@map("outbox_events")
+}
+
+// ─── Processed Events (Idempotency) ──────────────────────────────────────────
+// Workers record each successfully processed eventId here before completing
+// the job. Before processing, workers check this table — if the eventId
+// already exists the event is a duplicate and skipped.
+
+model ProcessedEvent {
+  id          String   @id @default(cuid())
+  eventId     String   @unique  // enforces at-most-once processing
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([eventId])
+  @@map("processed_events")
+}
+
+// ─── Idempotency Keys ─────────────────────────────────────────────────────────
+// Protects important write endpoints (POST /incidents, POST /assignments, etc.)
+// from duplicate client requests. Clients supply an Idempotency-Key header;
+// the first response is stored and replayed for any subsequent retry.
+
+model IdempotencyKey {
+  id             String   @id @default(cuid())
+  key            String   @unique          // client-supplied Idempotency-Key
+  requestHash    String                    // SHA-256 of method + path + body
+  responseStatus Int                       // HTTP status to replay
+  responseBody   Json                      // response body to replay
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime                  // TTL — expired keys are pruned
+
+  @@index([key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}

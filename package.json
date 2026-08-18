@@ -1,0 +1,65 @@
+{
+  "name": "emergency-response-api",
+  "version": "1.0.0",
+  "description": "Intelligent Emergency Response & Resource Optimization Platform - Backend API",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "worker": "ts-node-dev --respawn --transpile-only src/workers/worker.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:worker": "node dist/workers/worker.js",
+    "test": "jest --runInBand",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "load:test": "k6 run load-tests/incidents.js",
+    "load:health": "k6 run load-tests/health.js",
+    "load:assignments": "k6 run load-tests/assignments.js",
+    "load:reoptimization": "k6 run load-tests/reoptimization.js",
+    "load:spike": "k6 run load-tests/spike.js",
+    "load:soak": "k6 run load-tests/soak.js"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json"
+    ]
+  },
+  "dependencies": {
+    "@prisma/client": "5.16.1",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.7.8",
+    "cookie-parser": "^1.4.7",
+    "cors": "2.8.5",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "http-status": "1.7.4",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "2.8.17",
+    "@types/express": "4.17.21",
+    "@types/ioredis": "^4.28.10",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "20.14.11",
+    "jest": "^30.4.2",
+    "prisma": "5.16.1",
+    "ts-jest": "^29.4.12",
+    "ts-node-dev": "2.0.0",
+    "typescript": "5.5.3"
+  }
+}

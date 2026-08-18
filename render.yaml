@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: emergency-response-api
+    runtime: node
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false        # Render dashboard-এ manually দাও
+      - key: JWT_SECRET
+        sync: false        # Render dashboard-এ manually দাও
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: REDIS_HOST
+        sync: false        # Upstash Redis host দাও
+      - key: REDIS_PORT
+        value: 6379
+      - key: REDIS_PASSWORD
+        sync: false        # Upstash Redis password দাও
+      - key: CACHE_DEFAULT_TTL_SECONDS
+        value: 60
+      - key: WORKER_CONCURRENCY
+        value: 2
+      - key: WORKER_MAX_ATTEMPTS
+        value: 3
+      - key: OUTBOX_POLL_INTERVAL_MS
+        value: 10000
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: 100
+      - key: PAGINATION_DEFAULT_LIMIT
+        value: 20
+      - key: PAGINATION_MAX_LIMIT
+        value: 100
+      - key: SHUTDOWN_TIMEOUT_MS
+        value: 10000
+      - key: IDEMPOTENCY_TTL_SECONDS
+        value: 86400
+      - key: CLEANUP_INTERVAL_MS
+        value: 21600000
+      - key: CORS_ORIGINS
+        value: "*"
