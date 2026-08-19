@@ -4,6 +4,7 @@ export interface RegisterInput {
   name: string;
   email: string;
   password: string;
+  role?: string; // optional — defaults to CITIZEN if not provided
 }
 
 export interface LoginInput {

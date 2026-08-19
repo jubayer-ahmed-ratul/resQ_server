@@ -9,6 +9,8 @@ const router = Router();
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
+const roleValues = ['ADMIN', 'COORDINATOR', 'OPERATOR', 'CITIZEN'] as const;
+
 const registerSchema = z.object({
   name: z
     .string({ error: 'Name is required.' })
@@ -28,6 +30,11 @@ const registerSchema = z.object({
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
       'Password must contain at least one uppercase letter, one lowercase letter, and one number.',
     ),
+  role: z
+    .enum(roleValues, {
+      error: `Role must be one of: ${roleValues.join(', ')}.`,
+    })
+    .optional(), // defaults to CITIZEN if not provided
 });
 
 const loginSchema = z.object({

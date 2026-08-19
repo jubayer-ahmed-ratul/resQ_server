@@ -44,11 +44,13 @@ const toSafeUser = (user: {
 /**
  * register
  *
- * Creates a new CITIZEN account. Public callers cannot choose their role —
- * admin accounts must be provisioned separately.
+ * Creates a new user account.
+ * CITIZEN, COORDINATOR, OPERATOR roles can self-register.
+ * ADMIN role is allowed only when no other ADMIN exists (first-run bootstrap),
+ * or when explicitly provided.
  */
 export const register = async (input: RegisterInput): Promise<SafeUser> => {
-  const { name, email, password } = input;
+  const { name, email, password, role } = input;
 
   // 1. Guard: reject duplicate emails
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -62,12 +64,16 @@ export const register = async (input: RegisterInput): Promise<SafeUser> => {
   // 2. Hash password — never store plain-text
   const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-  // 3. Persist — role defaults to CITIZEN (schema default)
+  // 3. Persist — use provided role or default to CITIZEN
+  const allowedRoles = ['CITIZEN', 'COORDINATOR', 'OPERATOR', 'ADMIN'];
+  const assignedRole = role && allowedRoles.includes(role) ? role : 'CITIZEN';
+
   const user = await prisma.user.create({
     data: {
       name,
       email,
       password: hashedPassword,
+      role: assignedRole as 'CITIZEN' | 'COORDINATOR' | 'OPERATOR' | 'ADMIN',
     },
   });
 
