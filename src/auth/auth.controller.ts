@@ -2,10 +2,11 @@ import { Request, Response } from 'express';
 import httpStatus from 'http-status';
 import * as authService from './auth.service';
 import sendResponse from '../utils/sendResponse';
-import { RegisterInput, LoginInput } from './auth.interface';
+import { RegisterInput, LoginInput, UpdateProfileInput } from './auth.interface';
+import { writeAuditLog } from '../modules/audit/audit.service';
 
 /**
- * POST /api/v1/auth/register
+ * POST /api/auth/register
  */
 export const register = async (req: Request, res: Response): Promise<void> => {
   const input = req.body as RegisterInput;
@@ -21,7 +22,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * POST /api/v1/auth/login
+ * POST /api/auth/login
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
   const input = req.body as LoginInput;
@@ -37,11 +38,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * GET /api/v1/auth/me
+ * GET /api/auth/me
  * Requires: authenticate middleware (sets req.user)
  */
 export const getMe = async (req: Request, res: Response): Promise<void> => {
-  // req.user is guaranteed by the authenticate middleware
   const userId = req.user!.userId;
   const user = await authService.getMe(userId);
 
@@ -50,6 +50,36 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
     statusCode: httpStatus.OK,
     success: true,
     message: 'User profile retrieved successfully.',
+    data: user,
+  });
+};
+
+/**
+ * PATCH /api/auth/me
+ * Any authenticated user — update their own name/email/password.
+ * Role cannot be changed here (ADMIN-only via /api/users).
+ */
+export const updateMe = async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user!.userId;
+  const input = req.body as UpdateProfileInput;
+
+  const user = await authService.updateMe(userId, input);
+
+  await writeAuditLog({
+    actorId: userId,
+    action: 'UPDATE',
+    entity: 'USER',
+    entityId: userId,
+    details: { updatedFields: Object.keys(req.body), self: true },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
+  sendResponse({
+    res,
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Profile updated successfully.',
     data: user,
   });
 };

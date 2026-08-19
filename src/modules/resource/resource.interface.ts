@@ -13,6 +13,7 @@ export interface CreateResourceInput {
   longitude: number;
   capacity: number;
   status?: ResourceStatus;
+  operatorId?: string;
 }
 
 export interface UpdateResourceInput {
@@ -22,6 +23,7 @@ export interface UpdateResourceInput {
   longitude?: number;
   capacity?: number;
   status?: ResourceStatus;
+  operatorId?: string | null;
 }
 
 export interface ResourceFilters {

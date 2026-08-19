@@ -4,12 +4,23 @@ export interface RegisterInput {
   name: string;
   email: string;
   password: string;
-  role?: string; // optional — defaults to CITIZEN if not provided
+  // No role field — only CITIZEN can self-register.
+  // ADMIN/COORDINATOR/OPERATOR accounts are created by ADMIN via /api/users.
 }
 
 export interface LoginInput {
   email: string;
   password: string;
+}
+
+/**
+ * Profile update — any authenticated user can update their own name/email/password.
+ * Role changes are NOT allowed here — only ADMIN can change roles via /api/users.
+ */
+export interface UpdateProfileInput {
+  name?: string;
+  email?: string;
+  password?: string;
 }
 
 // ─── Response Shapes ──────────────────────────────────────────────────────────

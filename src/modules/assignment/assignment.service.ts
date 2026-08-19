@@ -17,6 +17,7 @@ import { createEvent } from '../../events/event.publisher';
 import { EventType } from '../../events/event.types';
 import { writeOutboxEvent } from '../../events/outbox/outbox.helper';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../utils/pagination';
+import { AuthUser } from '../../middlewares/auth';
 
 // ─── Eligible incident statuses for assignment ────────────────────────────────
 // An incident must be VALIDATED or PROCESSING before it can be ASSIGNED.
@@ -377,11 +378,22 @@ export const getAssignmentById = async (id: string) => {
 export const getAssignments = async (
   filters: AssignmentFilters,
   pagination?: PaginationParams,
+  user?: AuthUser,
 ) => {
   const where: Record<string, unknown> = {};
   if (filters.incidentId) where['incidentId'] = filters.incidentId;
   if (filters.resourceId) where['resourceId'] = filters.resourceId;
   if (filters.status) where['status'] = filters.status;
+
+  // OPERATOR: only see assignments for their resources
+  if (user && user.role === 'OPERATOR') {
+    where['resource'] = { operatorId: user.userId };
+  }
+
+  // CITIZEN: only see assignments for their own incidents
+  if (user && user.role === 'CITIZEN') {
+    where['incident'] = { createdById: user.userId };
+  }
 
   if (pagination) {
     const { skip, take } = buildPaginationMeta(pagination);

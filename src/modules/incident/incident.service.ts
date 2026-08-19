@@ -14,6 +14,7 @@ import { createEvent } from '../../events/event.publisher';
 import { EventType } from '../../events/event.types';
 import { writeOutboxEventDirect } from '../../events/outbox/outbox.helper';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../utils/pagination';
+import { AuthUser } from '../../middlewares/auth';
 
 // ─── Priority-relevant fields ─────────────────────────────────────────────────
 
@@ -50,10 +51,7 @@ export const createIncident = async (
     },
   });
 
-  // Publish INCIDENT_CREATED via outbox (atomic enough — created before priority calc)
-  // Priority calculation is intentionally synchronous here so the HTTP response
-  // includes the score. The INCIDENT_CREATED event allows async downstream consumers
-  // to react independently without re-doing the calculation.
+  // Publish INCIDENT_CREATED via outbox
   await writeOutboxEventDirect(
     createEvent(EventType.INCIDENT_CREATED, {
       incidentId:  incident.id,
@@ -66,7 +64,7 @@ export const createIncident = async (
   // Calculate and persist priority score (synchronous — included in response)
   await calculateAndSaveIncidentPriority(incident.id);
 
-  return prisma.incident.findUnique({
+  const created = await prisma.incident.findUnique({
     where: { id: incident.id },
     include: {
       createdBy: {
@@ -74,6 +72,12 @@ export const createIncident = async (
       },
     },
   });
+
+  if (!created) {
+    throw new AppError('Incident not found after creation.', httpStatus.INTERNAL_SERVER_ERROR);
+  }
+
+  return created;
 };
 
 // ─── List ─────────────────────────────────────────────────────────────────────
@@ -82,11 +86,36 @@ export const getIncidents = async (
   filters: IncidentFilters,
   sort?: string,
   pagination?: PaginationParams,
+  user?: AuthUser,
 ) => {
   const where: Record<string, unknown> = {};
 
   if (filters.status) where['status'] = filters.status;
   if (filters.severity) where['severity'] = filters.severity;
+
+  // Role-based filtering
+  if (user) {
+    if (user.role === 'CITIZEN') {
+      // Citizens only see their own incidents
+      where['createdById'] = user.userId;
+    } else if (user.role === 'OPERATOR') {
+      // Operators only see incidents assigned to their resources
+      const assignments = await prisma.assignment.findMany({
+        where: {
+          status: 'ACTIVE',
+          resource: { operatorId: user.userId },
+        },
+        select: { incidentId: true },
+      });
+      const incidentIds = assignments.map((a) => a.incidentId);
+      if (incidentIds.length === 0) {
+        // No assigned incidents — return empty result
+        where['id'] = { in: [] };
+      } else {
+        where['id'] = { in: incidentIds };
+      }
+    }
+  }
 
   if (sort === 'priority') {
     if (!filters.status) {
@@ -212,9 +241,97 @@ export const updateIncident = async (
     await calculateAndSaveIncidentPriority(updated.id);
   }
 
-  return prisma.incident.findUnique({
+  const result = await prisma.incident.findUnique({
     where: { id: updated.id },
     include: { createdBy: { select: { id: true, name: true, email: true, role: true } } },
+  });
+
+  if (!result) {
+    throw new AppError('Incident not found after update.', httpStatus.INTERNAL_SERVER_ERROR);
+  }
+
+  return result;
+};
+
+// ─── Get incident assignments ─────────────────────────────────────────────────
+
+/**
+ * Returns all assignments for a given incident.
+ * Used by CITIZEN to track their report's response progress.
+ */
+export const getIncidentAssignments = async (id: string) => {
+  const incident = await prisma.incident.findUnique({ where: { id } });
+  if (!incident) {
+    throw new AppError('Incident not found.', httpStatus.NOT_FOUND);
+  }
+
+  return prisma.assignment.findMany({
+    where: { incidentId: id },
+    orderBy: { assignedAt: 'desc' },
+    select: {
+      id: true,
+      status: true,
+      assignedAt: true,
+      releasedAt: true,
+      resource: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          status: true,
+        },
+      },
+    },
+  });
+};
+
+// ─── Cancel (Citizen self-cancel or Admin/Coordinator cancel) ─────────────────
+
+/**
+ * CITIZEN: can cancel only their own PENDING incident.
+ * ADMIN / COORDINATOR: can cancel any incident that is not already RESOLVED or CANCELLED.
+ */
+export const cancelIncident = async (
+  id: string,
+  userId: string,
+  userRole: string,
+) => {
+  const incident = await prisma.incident.findUnique({ where: { id } });
+  if (!incident) {
+    throw new AppError('Incident not found.', httpStatus.NOT_FOUND);
+  }
+
+  if (userRole === 'CITIZEN') {
+    // Citizens can only cancel their own incident
+    if (incident.createdById !== userId) {
+      throw new AppError(
+        'You can only cancel your own incidents.',
+        httpStatus.FORBIDDEN,
+      );
+    }
+    // Citizens can only cancel PENDING incidents (business rule)
+    if (incident.status !== 'PENDING') {
+      throw new AppError(
+        'You can only cancel incidents that are still pending.',
+        httpStatus.FORBIDDEN,
+      );
+    }
+  } else {
+    // ADMIN / COORDINATOR — cannot cancel already resolved/cancelled
+    if (incident.status === 'RESOLVED' || incident.status === 'CANCELLED') {
+      throw new AppError(
+        `Incident is already ${incident.status.toLowerCase()} and cannot be cancelled.`,
+        httpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  return prisma.incident.update({
+    where: { id },
+    data: { status: 'CANCELLED' },
+    include: {
+      createdBy: { select: { id: true, name: true, email: true, role: true } },
+    },
   });
 };
 

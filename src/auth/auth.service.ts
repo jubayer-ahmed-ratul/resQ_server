@@ -8,6 +8,7 @@ import {
   LoginInput,
   SafeUser,
   LoginResponse,
+  UpdateProfileInput,
 } from './auth.interface';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,12 +46,12 @@ const toSafeUser = (user: {
  * register
  *
  * Creates a new user account.
- * CITIZEN, COORDINATOR, OPERATOR roles can self-register.
- * ADMIN role is allowed only when no other ADMIN exists (first-run bootstrap),
- * or when explicitly provided.
+ * Only CITIZEN role can self-register.
+ * ADMIN, COORDINATOR, OPERATOR accounts must be created by an ADMIN
+ * via the /api/users endpoint.
  */
 export const register = async (input: RegisterInput): Promise<SafeUser> => {
-  const { name, email, password, role } = input;
+  const { name, email, password } = input;
 
   // 1. Guard: reject duplicate emails
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -61,19 +62,19 @@ export const register = async (input: RegisterInput): Promise<SafeUser> => {
     );
   }
 
-  // 2. Hash password — never store plain-text
+  // 2. RBAC: only CITIZEN can self-register.
+  //    ADMIN/COORDINATOR/OPERATOR accounts are created by ADMIN via /api/users.
+
+  // 3. Hash password — never store plain-text
   const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-  // 3. Persist — use provided role or default to CITIZEN
-  const allowedRoles = ['CITIZEN', 'COORDINATOR', 'OPERATOR', 'ADMIN'];
-  const assignedRole = role && allowedRoles.includes(role) ? role : 'CITIZEN';
-
+  // 4. Persist — always CITIZEN role
   const user = await prisma.user.create({
     data: {
       name,
       email,
       password: hashedPassword,
-      role: assignedRole as 'CITIZEN' | 'COORDINATOR' | 'OPERATOR' | 'ADMIN',
+      role: 'CITIZEN',
     },
   });
 
@@ -133,4 +134,46 @@ export const getMe = async (userId: string): Promise<SafeUser> => {
   }
 
   return toSafeUser(user);
+};
+
+/**
+ * updateMe
+ *
+ * Allows any authenticated user to update their own profile.
+ * CITIZEN can update name, email, password.
+ * Role cannot be changed here — only ADMIN can change roles via /api/users.
+ */
+export const updateMe = async (
+  userId: string,
+  input: UpdateProfileInput,
+): Promise<SafeUser> => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    throw new AppError('User not found.', httpStatus.NOT_FOUND);
+  }
+
+  // Guard: email uniqueness check if changing email
+  if (input.email && input.email !== user.email) {
+    const existing = await prisma.user.findUnique({ where: { email: input.email } });
+    if (existing) {
+      throw new AppError(
+        'An account with this email already exists.',
+        httpStatus.CONFLICT,
+      );
+    }
+  }
+
+  const data: Record<string, unknown> = {};
+  if (input.name !== undefined) data['name'] = input.name;
+  if (input.email !== undefined) data['email'] = input.email;
+  if (input.password !== undefined) {
+    data['password'] = await bcrypt.hash(input.password, SALT_ROUNDS);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data,
+  });
+
+  return toSafeUser(updated);
 };

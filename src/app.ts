@@ -1,5 +1,5 @@
 /**
- * Express Application — Part 11 updated
+ * Express Application — Part 11 updated + RBAC
  *
  * Changes from Part 10:
  *   - helmet for security headers
@@ -10,6 +10,7 @@
  *   - Stricter rate limiting on auth endpoints
  *   - Replaced simple /health with dedicated health router (/health + /ready)
  *   - Updated error handler with errorCode + requestId
+ *   - RBAC: Added /api/users (ADMIN only) and /api/audit-logs (ADMIN/COORDINATOR)
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -31,6 +32,8 @@ import hospitalRouter from './modules/hospital/hospital.route';
 import assignmentRouter from './modules/assignment/assignment.route';
 import decisionRouter from './modules/decision/decision.route';
 import reoptimizationRouter from './modules/reoptimization/reoptimization.route';
+import userRouter from './modules/user/user.route';
+import auditRouter from './modules/audit/audit.route';
 
 const app = express();
 
@@ -82,6 +85,12 @@ app.use('/api', distributedGeneralRateLimit);
 
 // Auth — stricter rate limit to prevent brute-force
 app.use('/api/auth', distributedAuthRateLimit, authRouter);
+
+// User management — ADMIN only
+app.use('/api/users', userRouter);
+
+// Audit logs — ADMIN / COORDINATOR
+app.use('/api/audit-logs', auditRouter);
 
 // Incident routes
 app.use('/api/incidents', incidentRouter);

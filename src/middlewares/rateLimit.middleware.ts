@@ -117,15 +117,24 @@ export function distributedRateLimit(
       }
 
       const client = cacheImpl.getClient();
-      const current = await client.incr(redisKey);
+
+      // Use a pipeline to batch INCR + PTTL into a single round-trip —
+      // avoids 3 sequential Redis calls per request.
+      const pipeline = client.pipeline();
+      pipeline.incr(redisKey);
+      pipeline.pttl(redisKey);
+      const results = await pipeline.exec();
+
+      const current = (results?.[0]?.[1] as number) ?? 0;
+      let ttlMs = (results?.[1]?.[1] as number) ?? windowMs;
 
       if (current === 1) {
         // First request in this window — set TTL
         await client.pexpire(redisKey, windowMs);
+        ttlMs = windowMs;
       }
 
       // Set informational headers
-      const ttlMs = await client.pttl(redisKey);
       const remaining = Math.max(0, max - current);
 
       res.setHeader('RateLimit-Limit', max);

@@ -97,6 +97,23 @@ enum OutboxEventStatus {
   FAILED
 }
 
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ASSIGN
+  REMOVE
+  LOGIN
+  LOGOUT
+  DEACTIVATE
+  ACTIVATE
+  APPROVE
+  REJECT
+  CANCEL
+  COMPLETE
+  OTHER
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -110,6 +127,12 @@ model User {
   updatedAt DateTime   @updatedAt
 
   incidents Incident[]
+
+  // Operator-assigned resources & hospitals (nullable — only for OPERATOR role)
+  assignedResources        Resource[] @relation("ResourceOperator")
+  assignedHospitals        Hospital[] @relation("HospitalOperator")
+
+  auditLogs AuditLog[]
 
   @@map("users")
 }
@@ -169,6 +192,12 @@ model Resource {
 
   capacity Int @default(1)
 
+  // ─── Operator assignment (Part: RBAC) ─────────────────────────────────────
+  // ADMIN assigns an OPERATOR to this resource. Only that operator may
+  // update the resource's status/location. null = unassigned.
+  operatorId String?
+  operator   User?  @relation("ResourceOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+
   assignments  Assignment[]
   decisionLogs DecisionLog[]
   reoptimizationLogsAsPrevious ReoptimizationLog[] @relation("ReoptimizationPreviousResource")
@@ -181,9 +210,12 @@ model Resource {
   // status: allocation engine filters by AVAILABLE status constantly
   // type: allocation engine filters by resource type to match requirements
   // (status, type): composite for allocation engine's combined filter
+  // createdAt: default ordering for list endpoints
   @@index([status])
   @@index([type])
   @@index([status, type])
+  @@index([operatorId])
+  @@index([createdAt])
   @@map("resources")
 }
 
@@ -201,12 +233,21 @@ model Hospital {
 
   status HospitalStatus @default(OPERATIONAL)
 
+  // ─── Operator assignment (Part: RBAC) ─────────────────────────────────────
+  // ADMIN assigns an authorized OPERATOR/staff to this hospital. Only that
+  // operator may update capacity/status. null = unassigned.
+  assignedOperatorId String?
+  assignedOperator   User?  @relation("HospitalOperator", fields: [assignedOperatorId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // ─── Indexes (Part 12) ─────────────────────────────────────────────────────
   // status: coordinators frequently filter by OPERATIONAL hospitals only
+  // createdAt: default ordering for list endpoints
   @@index([status])
+  @@index([assignedOperatorId])
+  @@index([createdAt])
   @@map("hospitals")
 }
 
@@ -298,6 +339,29 @@ model ReoptimizationLog {
   @@index([assignmentId])
   @@index([trigger])
   @@map("reoptimization_logs")
+}
+
+// ─── Audit Log (Role-Based Access) ───────────────────────────────────────────
+// Every sensitive action performed by ADMIN / COORDINATOR / OPERATOR is
+// recorded here so ADMIN can monitor the entire system.
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  actorId   String
+  actor     User        @relation(fields: [actorId], references: [id])
+  action    AuditAction
+  entity    String      // e.g. 'USER', 'RESOURCE', 'HOSPITAL', 'INCIDENT', 'ASSIGNMENT'
+  entityId  String?     // the affected record's id (if applicable)
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime    @default(now())
+
+  @@index([actorId])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 // ─── Outbox Pattern ───────────────────────────────────────────────────────────

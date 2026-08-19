@@ -3,7 +3,8 @@ import { z } from 'zod';
 import * as incidentController from './incident.controller';
 import * as decisionController from '../decision/decision.controller';
 import * as reoptimizationController from '../reoptimization/reoptimization.controller';
-import { authenticate, authorizeRoles } from '../../middlewares/auth';
+import { authenticate } from '../../middlewares/auth';
+import { requireRoles, requireIncidentAccess } from '../../middlewares/permissions';
 import validate from '../../middlewares/validate';
 import catchAsync from '../../utils/catchAsync';
 import { idempotency } from '../../reliability/idempotency';
@@ -136,56 +137,83 @@ const updateStatusSchema = z.object({
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
- * POST /api/v1/incidents
- * Any authenticated user can submit an incident.
- * Idempotency-Key header supported: safe to retry without creating duplicates.
+ * POST /api/incidents
+ * CITIZEN, ADMIN, COORDINATOR — create an emergency report.
+ * OPERATOR cannot create incidents.
  */
 router.post(
   '/',
   authenticate,
+  requireRoles('CITIZEN', 'ADMIN', 'COORDINATOR'),
   idempotency(),
   validate(createIncidentSchema),
   catchAsync(incidentController.createIncident),
 );
 
 /**
- * GET /api/v1/incidents
- * Any authenticated user can list incidents.
- * Query params: ?status=PENDING&severity=HIGH
+ * GET /api/incidents
+ * ADMIN, COORDINATOR — view all incidents.
+ * CITIZEN — only their own incidents (handled in controller).
+ * OPERATOR — only incidents assigned to their resource (handled in controller).
  */
-router.get('/', authenticate, catchAsync(incidentController.getIncidents));
+router.get(
+  '/',
+  authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'CITIZEN', 'OPERATOR'),
+  catchAsync(incidentController.getIncidents),
+);
 
 /**
- * GET /api/v1/incidents/:id
- * Any authenticated user can view an incident.
+ * GET /api/incidents/:id
+ * ADMIN, COORDINATOR — view any incident.
+ * CITIZEN — only their own.
+ * OPERATOR — only assigned to their resource.
  */
 router.get(
   '/:id',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'CITIZEN', 'OPERATOR'),
+  requireIncidentAccess,
   catchAsync(incidentController.getIncidentById),
 );
 
 /**
- * PATCH /api/v1/incidents/:id
- * Citizens: own PENDING incidents only.
+ * PATCH /api/incidents/:id
+ * CITIZEN: own PENDING incidents only.
  * ADMIN / COORDINATOR: any incident.
+ * OPERATOR: denied.
  */
 router.patch(
   '/:id',
   authenticate,
+  requireRoles('CITIZEN', 'ADMIN', 'COORDINATOR'),
+  requireIncidentAccess,
   validate(updateIncidentSchema),
   catchAsync(incidentController.updateIncident),
 );
 
 /**
- * PATCH /api/v1/incidents/:id/validate
+ * PATCH /api/incidents/:id/validate
  * ADMIN / COORDINATOR only — moves PENDING → VALIDATED.
  */
 router.patch(
   '/:id/validate',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(incidentController.validateIncident),
+);
+
+/**
+ * PATCH /api/incidents/:id/cancel
+ * CITIZEN — cancel their own PENDING incident.
+ * ADMIN / COORDINATOR — cancel any non-resolved incident.
+ */
+router.patch(
+  '/:id/cancel',
+  authenticate,
+  requireRoles('CITIZEN', 'ADMIN', 'COORDINATOR'),
+  requireIncidentAccess,
+  catchAsync(incidentController.cancelIncident),
 );
 
 /**
@@ -195,7 +223,7 @@ router.patch(
 router.patch(
   '/:id/status',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   validate(updateStatusSchema),
   catchAsync(incidentController.updateIncidentStatus),
 );
@@ -207,7 +235,7 @@ router.patch(
 router.post(
   '/:id/calculate-priority',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(incidentController.calculatePriority),
 );
 
@@ -218,20 +246,33 @@ router.post(
 router.post(
   '/:id/recommend-resource',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(incidentController.recommendResource),
 );
 
 /**
  * GET /api/incidents/:id/decisions
  * ADMIN / COORDINATOR only — full decision history for this incident.
- * Decision logs are immutable — no PATCH or DELETE exposed.
  */
 router.get(
   '/:id/decisions',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(decisionController.getDecisionsByIncident),
+);
+
+/**
+ * GET /api/incidents/:id/assignments
+ * ADMIN, COORDINATOR — view all assignments for this incident.
+ * CITIZEN — only for their own incident (updates on their report).
+ * OPERATOR — only if their resource is assigned to this incident.
+ */
+router.get(
+  '/:id/assignments',
+  authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'CITIZEN', 'OPERATOR'),
+  requireIncidentAccess,
+  catchAsync(incidentController.getIncidentAssignments),
 );
 
 /**
@@ -241,7 +282,7 @@ router.get(
 router.get(
   '/:id/reoptimizations',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(reoptimizationController.getReoptimizationLogsByIncident),
 );
 

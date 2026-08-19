@@ -43,6 +43,9 @@ function buildRedisClient(): Redis {
       return Math.min(times * 200, 1000);
     },
     enableOfflineQueue: false,
+    // Fail fast on connection issues — don't let a slow Redis block requests
+    enableReadyCheck: true,
+    commandTimeout: 2000,
   });
 
   client.on('error', (err: Error) => {

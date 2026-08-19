@@ -1,22 +1,14 @@
 /**
- * Hospital Service — Part 12 updated
+ * Hospital Service — Part 12 updated + RBAC
  *
  * Changes from Part 10:
  *   - Added cache-aside pattern for getHospitals() and getHospitalById()
  *   - Cache invalidation on update (capacity/status changes)
  *   - hospital:{id}:availability key for availability-specific reads
  *   - Added pagination support to getHospitals()
- *
- * Caching strategy:
- *   hospital:list              — paginated list (TTL: CACHE_DEFAULT_TTL_SECONDS)
- *   hospital:{id}              — individual hospital (TTL: CACHE_DEFAULT_TTL_SECONDS)
- *   hospital:{id}:availability — availability subset (TTL: half of default TTL)
- *
- * Invalidation:
- *   On hospital update → del hospital:{id} + hospital:{id}:availability + hospital:list
- *
- * IMPORTANT: Hospital capacity is cached for display purposes.
- *   Resource allocation and clinical decisions must re-read from DB directly.
+ *   - RBAC: OPERATOR sees only their assigned hospital
+ *   - RBAC: OPERATOR can only update capacity/status of their assigned hospital
+ *   - RBAC: ADMIN can assign/remove operators
  */
 
 import httpStatus from 'http-status';
@@ -31,9 +23,22 @@ import { getCacheService } from '../../cache/cache.service';
 import { CacheKeys } from '../../cache/cache.interface';
 import config from '../../config';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../utils/pagination';
+import { AuthUser } from '../../middlewares/auth';
 
 export const createHospital = async (input: CreateHospitalInput) => {
-  const hospital = await prisma.hospital.create({ data: input });
+  const hospital = await prisma.hospital.create({
+    data: {
+      name: input.name,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      bedCapacity: input.bedCapacity,
+      availableBeds: input.availableBeds,
+      icuCapacity: input.icuCapacity,
+      availableICUBeds: input.availableICUBeds,
+      ...(input.status !== undefined && { status: input.status }),
+      ...(input.assignedOperatorId !== undefined && { assignedOperatorId: input.assignedOperatorId }),
+    },
+  });
 
   // Invalidate list cache
   const cache = getCacheService();
@@ -45,6 +50,7 @@ export const createHospital = async (input: CreateHospitalInput) => {
 export const getHospitals = async (
   filters: HospitalFilters,
   pagination: PaginationParams,
+  user: AuthUser,
 ) => {
   const cache = getCacheService();
 
@@ -54,7 +60,7 @@ export const getHospitals = async (
     pagination.page === 1 &&
     pagination.limit === config.pagination.defaultLimit;
 
-  if (isDefaultQuery) {
+  if (isDefaultQuery && user.role !== 'OPERATOR') {
     const cached = await cache.get<PaginatedResult<unknown>>(CacheKeys.HOSPITAL_LIST);
     if (cached) {
       return cached;
@@ -63,6 +69,11 @@ export const getHospitals = async (
 
   const where: Record<string, unknown> = {};
   if (filters.status) where['status'] = filters.status;
+
+  // OPERATOR: only see their assigned hospital
+  if (user.role === 'OPERATOR') {
+    where['assignedOperatorId'] = user.userId;
+  }
 
   const { skip, take } = buildPaginationMeta(pagination);
 
@@ -73,6 +84,20 @@ export const getHospitals = async (
       orderBy: { createdAt: 'desc' },
       skip,
       take,
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        bedCapacity: true,
+        availableBeds: true,
+        icuCapacity: true,
+        availableICUBeds: true,
+        status: true,
+        assignedOperatorId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     }),
   ]);
 
@@ -88,7 +113,7 @@ export const getHospitals = async (
     },
   };
 
-  if (isDefaultQuery) {
+  if (isDefaultQuery && user.role !== 'OPERATOR') {
     await cache.set(CacheKeys.HOSPITAL_LIST, result);
   }
 
@@ -102,7 +127,23 @@ export const getHospitalById = async (id: string) => {
   const cached = await cache.get(cacheKey);
   if (cached) return cached;
 
-  const hospital = await prisma.hospital.findUnique({ where: { id } });
+  const hospital = await prisma.hospital.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      latitude: true,
+      longitude: true,
+      bedCapacity: true,
+      availableBeds: true,
+      icuCapacity: true,
+      availableICUBeds: true,
+      status: true,
+      assignedOperatorId: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
   if (!hospital) {
     throw new AppError('Hospital not found.', httpStatus.NOT_FOUND);
   }
@@ -144,10 +185,31 @@ export const getHospitalAvailability = async (id: string) => {
 export const updateHospital = async (
   id: string,
   input: UpdateHospitalInput,
+  user: AuthUser,
 ) => {
   const hospital = await prisma.hospital.findUnique({ where: { id } });
   if (!hospital) {
     throw new AppError('Hospital not found.', httpStatus.NOT_FOUND);
+  }
+
+  // OPERATOR: can only update capacity/status of their assigned hospital
+  if (user.role === 'OPERATOR') {
+    if (hospital.assignedOperatorId !== user.userId) {
+      throw new AppError(
+        'You do not have permission to update this hospital.',
+        httpStatus.FORBIDDEN,
+      );
+    }
+    // Only allow capacity and status updates for OPERATOR
+    const allowedFields = ['status', 'availableBeds', 'availableICUBeds', 'bedCapacity', 'icuCapacity'];
+    const requestedFields = Object.keys(input);
+    const disallowed = requestedFields.filter((f) => !allowedFields.includes(f));
+    if (disallowed.length > 0) {
+      throw new AppError(
+        `Operators can only update: ${allowedFields.join(', ')}.`,
+        httpStatus.FORBIDDEN,
+      );
+    }
   }
 
   // Determine final values after potential update to enforce capacity rules
@@ -182,10 +244,93 @@ export const updateHospital = async (
       ...(input.icuCapacity !== undefined && { icuCapacity: input.icuCapacity }),
       ...(input.availableICUBeds !== undefined && { availableICUBeds: input.availableICUBeds }),
       ...(input.status !== undefined && { status: input.status }),
+      ...(input.assignedOperatorId !== undefined && { assignedOperatorId: input.assignedOperatorId }),
     },
   });
 
   // Invalidate all hospital-related cache keys
+  const cache = getCacheService();
+  await cache.del(
+    CacheKeys.HOSPITAL_BY_ID(id),
+    CacheKeys.HOSPITAL_AVAILABILITY(id),
+    CacheKeys.HOSPITAL_LIST,
+  );
+
+  return updated;
+};
+
+/**
+ * Assign an Operator to a hospital — ADMIN only.
+ */
+export const assignOperator = async (id: string, operatorId: string) => {
+  const hospital = await prisma.hospital.findUnique({ where: { id } });
+  if (!hospital) {
+    throw new AppError('Hospital not found.', httpStatus.NOT_FOUND);
+  }
+
+  // Verify the operator exists and has OPERATOR role
+  const operator = await prisma.user.findUnique({ where: { id: operatorId } });
+  if (!operator) {
+    throw new AppError('Operator not found.', httpStatus.NOT_FOUND);
+  }
+  if (operator.role !== 'OPERATOR') {
+    throw new AppError('The specified user is not an OPERATOR.', httpStatus.BAD_REQUEST);
+  }
+
+  const updated = await prisma.hospital.update({
+    where: { id },
+    data: { assignedOperatorId: operatorId },
+  });
+
+  const cache = getCacheService();
+  await cache.del(
+    CacheKeys.HOSPITAL_BY_ID(id),
+    CacheKeys.HOSPITAL_AVAILABILITY(id),
+    CacheKeys.HOSPITAL_LIST,
+  );
+
+  return updated;
+};
+
+/**
+ * Remove the Operator from a hospital — ADMIN only.
+ */
+export const removeOperator = async (id: string) => {
+  const hospital = await prisma.hospital.findUnique({ where: { id } });
+  if (!hospital) {
+    throw new AppError('Hospital not found.', httpStatus.NOT_FOUND);
+  }
+
+  const updated = await prisma.hospital.update({
+    where: { id },
+    data: { assignedOperatorId: null },
+  });
+
+  const cache = getCacheService();
+  await cache.del(
+    CacheKeys.HOSPITAL_BY_ID(id),
+    CacheKeys.HOSPITAL_AVAILABILITY(id),
+    CacheKeys.HOSPITAL_LIST,
+  );
+
+  return updated;
+};
+
+/**
+ * Deactivate (soft-delete) a hospital — ADMIN only.
+ * Sets status to CLOSED so it no longer appears in active routing.
+ */
+export const deactivateHospital = async (id: string) => {
+  const hospital = await prisma.hospital.findUnique({ where: { id } });
+  if (!hospital) {
+    throw new AppError('Hospital not found.', httpStatus.NOT_FOUND);
+  }
+
+  const updated = await prisma.hospital.update({
+    where: { id },
+    data: { status: 'CLOSED' },
+  });
+
   const cache = getCacheService();
   await cache.del(
     CacheKeys.HOSPITAL_BY_ID(id),

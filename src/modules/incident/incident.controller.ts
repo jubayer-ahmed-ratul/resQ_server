@@ -12,9 +12,10 @@ import {
   IncidentSeverity,
 } from './incident.interface';
 import { parsePagination } from '../../utils/pagination';
+import { writeAuditLog } from '../audit/audit.service';
 
 /**
- * POST /api/v1/incidents
+ * POST /api/incidents
  */
 export const createIncident = async (
   req: Request,
@@ -24,6 +25,16 @@ export const createIncident = async (
   const userId = req.user!.userId;
 
   const incident = await incidentService.createIncident(input, userId);
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { title: incident.title, severity: incident.severity },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
 
   sendResponse({
     res,
@@ -36,6 +47,10 @@ export const createIncident = async (
 
 /**
  * GET /api/incidents
+ * Role-based filtering:
+ *   ADMIN/COORDINATOR — all incidents
+ *   CITIZEN — only their own
+ *   OPERATOR — only incidents assigned to their resource
  */
 export const getIncidents = async (
   req: Request,
@@ -52,7 +67,7 @@ export const getIncidents = async (
 
   const sort = req.query['sort'] as string | undefined;
   const pagination = parsePagination(req);
-  const result = await incidentService.getIncidents(filters, sort, pagination);
+  const result = await incidentService.getIncidents(filters, sort, pagination, req.user!);
 
   sendResponse({
     res,
@@ -64,7 +79,7 @@ export const getIncidents = async (
 };
 
 /**
- * GET /api/v1/incidents/:id
+ * GET /api/incidents/:id
  */
 export const getIncidentById = async (
   req: Request,
@@ -82,7 +97,7 @@ export const getIncidentById = async (
 };
 
 /**
- * PATCH /api/v1/incidents/:id
+ * PATCH /api/incidents/:id
  */
 export const updateIncident = async (
   req: Request,
@@ -99,6 +114,16 @@ export const updateIncident = async (
     userRole,
   );
 
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { updatedFields: Object.keys(req.body) },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
   sendResponse({
     res,
     statusCode: httpStatus.OK,
@@ -109,13 +134,23 @@ export const updateIncident = async (
 };
 
 /**
- * PATCH /api/v1/incidents/:id/validate
+ * PATCH /api/incidents/:id/validate
  */
 export const validateIncident = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
   const incident = await incidentService.validateIncident(req.params['id']!);
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'APPROVE',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { status: 'VALIDATED' },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
 
   sendResponse({
     res,
@@ -139,6 +174,16 @@ export const updateIncidentStatus = async (
     req.params['id']!,
     input,
   );
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { status: input.status },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
 
   sendResponse({
     res,
@@ -188,5 +233,63 @@ export const recommendResource = async (
     success: true,
     message: result.message,
     data: result,
+  });
+};
+
+/**
+ * PATCH /api/incidents/:id/cancel
+ * CITIZEN — cancel their own PENDING incident.
+ * ADMIN / COORDINATOR — cancel any cancellable incident.
+ */
+export const cancelIncident = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const userId = req.user!.userId;
+  const userRole = req.user!.role;
+
+  const incident = await incidentService.cancelIncident(
+    req.params['id']!,
+    userId,
+    userRole,
+  );
+
+  await writeAuditLog({
+    actorId: userId,
+    action: 'CANCEL',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { cancelledBy: userRole },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
+  sendResponse({
+    res,
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Incident cancelled successfully.',
+    data: incident,
+  });
+};
+
+/**
+ * GET /api/incidents/:id/assignments
+ * Returns all assignments for a given incident.
+ * Access is controlled by requireIncidentAccess middleware upstream.
+ * CITIZEN sees assignments for their own incident (status updates on their report).
+ */
+export const getIncidentAssignments = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const assignments = await incidentService.getIncidentAssignments(req.params['id']!);
+
+  sendResponse({
+    res,
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Incident assignments retrieved successfully.',
+    data: assignments,
   });
 };

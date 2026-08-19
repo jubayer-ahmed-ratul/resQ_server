@@ -38,7 +38,7 @@ const config = {
     host:     process.env['REDIS_HOST'] ?? '127.0.0.1',
     port:     int('REDIS_PORT', 6379),
     password: process.env['REDIS_PASSWORD'] ?? undefined,
-    connectTimeout: int('REDIS_CONNECTION_TIMEOUT', 5000),
+    connectTimeout: int('REDIS_CONNECTION_TIMEOUT', 2000),
     // Upstash (and most cloud Redis) requires TLS — set REDIS_TLS=true
     tls: process.env['REDIS_TLS'] === 'true',
   },
@@ -95,7 +95,7 @@ const config = {
   // ─── Cache (Part 12) ─────────────────────────────────────────────────────────
   /** Default TTL for cached values in seconds. Default: 60 seconds. */
   cache: {
-    defaultTtlSeconds: int('CACHE_DEFAULT_TTL_SECONDS', 60),
+    defaultTtlSeconds: int('CACHE_DEFAULT_TTL_SECONDS', 120),
   },
 
   // ─── Worker concurrency (Part 12) ────────────────────────────────────────────

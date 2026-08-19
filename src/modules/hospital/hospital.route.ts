@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import * as hospitalController from './hospital.controller';
-import { authenticate, authorizeRoles } from '../../middlewares/auth';
+import { authenticate } from '../../middlewares/auth';
+import { requireRoles, requireHospitalAccess } from '../../middlewares/permissions';
 import validate from '../../middlewares/validate';
 import catchAsync from '../../utils/catchAsync';
 
@@ -54,6 +55,8 @@ const createHospitalSchema = z
         error: `Status must be one of: ${hospitalStatusValues.join(', ')}.`,
       })
       .optional(),
+
+    assignedOperatorId: z.string().optional(),
   })
   .refine((d) => d.availableBeds <= d.bedCapacity, {
     message: 'availableBeds cannot exceed bedCapacity.',
@@ -113,58 +116,108 @@ const updateHospitalSchema = z.object({
       error: `Status must be one of: ${hospitalStatusValues.join(', ')}.`,
     })
     .optional(),
+
+  assignedOperatorId: z.string().nullable().optional(),
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
  * POST /api/hospitals
- * ADMIN, COORDINATOR only
+ * ADMIN only — create a hospital.
  */
 router.post(
   '/',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN'),
   validate(createHospitalSchema),
   catchAsync(hospitalController.createHospital),
 );
 
 /**
  * GET /api/hospitals
- * All authenticated users — supports ?status=
+ * ADMIN, COORDINATOR — view all hospitals.
+ * OPERATOR — only their assigned hospital (handled in controller).
  */
-router.get('/', authenticate, catchAsync(hospitalController.getHospitals));
+router.get(
+  '/',
+  authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  catchAsync(hospitalController.getHospitals),
+);
 
 /**
  * GET /api/hospitals/:id
- * All authenticated users
+ * ADMIN, COORDINATOR — view any hospital.
+ * OPERATOR — only their assigned hospital.
  */
 router.get(
   '/:id',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireHospitalAccess,
   catchAsync(hospitalController.getHospitalById),
 );
 
 /**
  * GET /api/hospitals/:id/availability
- * All authenticated users — cached availability subset
+ * ADMIN, COORDINATOR — view availability.
+ * OPERATOR — only their assigned hospital.
  */
 router.get(
   '/:id/availability',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireHospitalAccess,
   catchAsync(hospitalController.getHospitalAvailability),
 );
 
 /**
  * PATCH /api/hospitals/:id
- * ADMIN, COORDINATOR only
+ * ADMIN — full update (name, location, capacity, status, operator).
+ * OPERATOR — only capacity/status of their assigned hospital.
  */
 router.patch(
   '/:id',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'OPERATOR'),
+  requireHospitalAccess,
   validate(updateHospitalSchema),
   catchAsync(hospitalController.updateHospital),
+);
+
+/**
+ * PATCH /api/hospitals/:id/assign-operator
+ * ADMIN only — assign an authorized Operator/staff to a hospital.
+ */
+router.patch(
+  '/:id/assign-operator',
+  authenticate,
+  requireRoles('ADMIN'),
+  validate(z.object({ operatorId: z.string().min(1) })),
+  catchAsync(hospitalController.assignOperator),
+);
+
+/**
+ * PATCH /api/hospitals/:id/remove-operator
+ * ADMIN only — remove the Operator from a hospital.
+ */
+router.patch(
+  '/:id/remove-operator',
+  authenticate,
+  requireRoles('ADMIN'),
+  catchAsync(hospitalController.removeOperator),
+);
+
+/**
+ * PATCH /api/hospitals/:id/deactivate
+ * ADMIN only — soft-deactivate a hospital (sets status to CLOSED).
+ */
+router.patch(
+  '/:id/deactivate',
+  authenticate,
+  requireRoles('ADMIN'),
+  catchAsync(hospitalController.deactivateHospital),
 );
 
 export default router;

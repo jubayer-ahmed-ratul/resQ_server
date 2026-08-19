@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import * as assignmentController from './assignment.controller';
-import { authenticate, authorizeRoles } from '../../middlewares/auth';
+import { authenticate } from '../../middlewares/auth';
+import { requireRoles, requireAssignmentAccess } from '../../middlewares/permissions';
 import validate from '../../middlewares/validate';
 import catchAsync from '../../utils/catchAsync';
 import { assignmentReoptimizeRouter } from '../reoptimization/reoptimization.route';
@@ -30,7 +31,7 @@ const createAssignmentSchema = z.object({
 router.post(
   '/',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   idempotency(),
   validate(createAssignmentSchema),
   catchAsync(assignmentController.createAssignment),
@@ -38,45 +39,54 @@ router.post(
 
 /**
  * GET /api/assignments
- * All authenticated — supports ?status= ?incidentId= ?resourceId=
+ * ADMIN, COORDINATOR — view all assignments.
+ * OPERATOR — only assignments for their resources (handled in controller).
+ * CITIZEN — only assignments for their own incidents (handled in controller).
  */
 router.get(
   '/',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR', 'CITIZEN'),
   catchAsync(assignmentController.getAssignments),
 );
 
 /**
  * GET /api/assignments/:id
- * All authenticated
+ * ADMIN, COORDINATOR — view any assignment.
+ * OPERATOR — only assignments for their resources.
+ * CITIZEN — only assignments for their own incidents.
  */
 router.get(
   '/:id',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR', 'CITIZEN'),
+  requireAssignmentAccess,
   catchAsync(assignmentController.getAssignmentById),
 );
 
 /**
  * PATCH /api/assignments/:id/complete
- * ADMIN, COORDINATOR, OPERATOR
+ * ADMIN, COORDINATOR — complete any assignment.
+ * OPERATOR — only assignments for their resources.
  * ACTIVE → COMPLETED, Resource → AVAILABLE, Incident → DISPATCHED
  */
 router.patch(
   '/:id/complete',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireAssignmentAccess,
   catchAsync(assignmentController.completeAssignment),
 );
 
 /**
  * PATCH /api/assignments/:id/cancel
- * ADMIN, COORDINATOR
+ * ADMIN, COORDINATOR only
  * ACTIVE → CANCELLED, Resource → AVAILABLE, Incident → PROCESSING
  */
 router.patch(
   '/:id/cancel',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN', 'COORDINATOR'),
   catchAsync(assignmentController.cancelAssignment),
 );
 

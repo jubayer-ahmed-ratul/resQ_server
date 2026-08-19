@@ -9,6 +9,7 @@ export interface CreateHospitalInput {
   icuCapacity: number;
   availableICUBeds: number;
   status?: HospitalStatus;
+  assignedOperatorId?: string;
 }
 
 export interface UpdateHospitalInput {
@@ -20,6 +21,7 @@ export interface UpdateHospitalInput {
   icuCapacity?: number;
   availableICUBeds?: number;
   status?: HospitalStatus;
+  assignedOperatorId?: string | null;
 }
 
 export interface HospitalFilters {

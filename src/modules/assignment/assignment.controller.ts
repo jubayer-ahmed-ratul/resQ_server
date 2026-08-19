@@ -4,6 +4,7 @@ import * as assignmentService from './assignment.service';
 import sendResponse from '../../utils/sendResponse';
 import { CreateAssignmentInput, AssignmentFilters, AssignmentStatus } from './assignment.interface';
 import { parsePagination } from '../../utils/pagination';
+import { writeAuditLog } from '../audit/audit.service';
 
 export const createAssignment = async (
   req: Request,
@@ -12,6 +13,17 @@ export const createAssignment = async (
   const assignment = await assignmentService.createAssignment(
     req.body as CreateAssignmentInput,
   );
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'ASSIGN',
+    entity: 'ASSIGNMENT',
+    entityId: assignment.id,
+    details: { incidentId: assignment.incidentId, resourceId: assignment.resourceId },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
   sendResponse({
     res,
     statusCode: httpStatus.CREATED,
@@ -31,7 +43,7 @@ export const getAssignments = async (
     ...(req.query['status'] && { status: req.query['status'] as AssignmentStatus }),
   };
   const pagination = parsePagination(req);
-  const result = await assignmentService.getAssignments(filters, pagination);
+  const result = await assignmentService.getAssignments(filters, pagination, req.user!);
   sendResponse({
     res,
     statusCode: httpStatus.OK,
@@ -60,6 +72,16 @@ export const completeAssignment = async (
   res: Response,
 ): Promise<void> => {
   const assignment = await assignmentService.completeAssignment(req.params['id']!);
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'COMPLETE',
+    entity: 'ASSIGNMENT',
+    entityId: assignment.id,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
   sendResponse({
     res,
     statusCode: httpStatus.OK,
@@ -74,6 +96,16 @@ export const cancelAssignment = async (
   res: Response,
 ): Promise<void> => {
   const assignment = await assignmentService.cancelAssignment(req.params['id']!);
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'CANCEL',
+    entity: 'ASSIGNMENT',
+    entityId: assignment.id,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
   sendResponse({
     res,
     statusCode: httpStatus.OK,

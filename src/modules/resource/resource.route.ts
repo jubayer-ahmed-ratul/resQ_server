@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import * as resourceController from './resource.controller';
-import { authenticate, authorizeRoles } from '../../middlewares/auth';
+import { authenticate } from '../../middlewares/auth';
+import { requireRoles, requireResourceAccess } from '../../middlewares/permissions';
 import validate from '../../middlewares/validate';
 import catchAsync from '../../utils/catchAsync';
 
@@ -55,6 +56,8 @@ const createResourceSchema = z.object({
       error: `Status must be one of: ${resourceStatusValues.join(', ')}.`,
     })
     .optional(),
+
+  operatorId: z.string().optional(),
 });
 
 const updateResourceSchema = z.object({
@@ -94,49 +97,95 @@ const updateResourceSchema = z.object({
       error: `Status must be one of: ${resourceStatusValues.join(', ')}.`,
     })
     .optional(),
+
+  operatorId: z.string().nullable().optional(),
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
  * POST /api/resources
- * ADMIN, COORDINATOR only
+ * ADMIN only — create a resource (with or without an assigned Operator).
  */
 router.post(
   '/',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
+  requireRoles('ADMIN'),
   validate(createResourceSchema),
   catchAsync(resourceController.createResource),
 );
 
 /**
  * GET /api/resources
- * All authenticated users — supports ?type= and ?status=
+ * ADMIN, COORDINATOR only — view all resources.
+ * OPERATOR sees only their assigned resources (handled in controller).
  */
-router.get('/', authenticate, catchAsync(resourceController.getResources));
+router.get(
+  '/',
+  authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  catchAsync(resourceController.getResources),
+);
 
 /**
  * GET /api/resources/:id
- * All authenticated users
+ * ADMIN, COORDINATOR — view any resource.
+ * OPERATOR — only their assigned resource.
  */
 router.get(
   '/:id',
   authenticate,
+  requireRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireResourceAccess,
   catchAsync(resourceController.getResourceById),
 );
 
 /**
  * PATCH /api/resources/:id
- * ADMIN, COORDINATOR — full update
- * OPERATOR — can also update (status/location)
+ * ADMIN — full update (name, type, location, capacity, status, operator).
+ * OPERATOR — only status/location of their assigned resource.
  */
 router.patch(
   '/:id',
   authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR', 'OPERATOR'),
+  requireRoles('ADMIN', 'OPERATOR'),
+  requireResourceAccess,
   validate(updateResourceSchema),
   catchAsync(resourceController.updateResource),
+);
+
+/**
+ * PATCH /api/resources/:id/assign-operator
+ * ADMIN only — assign an Operator to a resource.
+ */
+router.patch(
+  '/:id/assign-operator',
+  authenticate,
+  requireRoles('ADMIN'),
+  validate(z.object({ operatorId: z.string().min(1) })),
+  catchAsync(resourceController.assignOperator),
+);
+
+/**
+ * PATCH /api/resources/:id/remove-operator
+ * ADMIN only — remove the Operator from a resource.
+ */
+router.patch(
+  '/:id/remove-operator',
+  authenticate,
+  requireRoles('ADMIN'),
+  catchAsync(resourceController.removeOperator),
+);
+
+/**
+ * PATCH /api/resources/:id/deactivate
+ * ADMIN only — soft-deactivate a resource (sets status to UNAVAILABLE).
+ */
+router.patch(
+  '/:id/deactivate',
+  authenticate,
+  requireRoles('ADMIN'),
+  catchAsync(resourceController.deactivateResource),
 );
 
 export default router;

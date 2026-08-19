@@ -107,11 +107,11 @@ import { handleResourceStatusChanged } from '../events/handlers/resource-status.
 // ─── Helper to extract eventType from mockOutboxCreate calls ─────────────────
 type OutboxCallArg = { data: { eventType: string; payload: Record<string, unknown> } };
 function getOutboxEventTypes(): string[] {
-  return mockOutboxCreate.mock.calls.map((c) => (c[0] as OutboxCallArg).data.eventType);
+  return mockOutboxCreate.mock.calls.map((c: unknown[]) => (c[0] as OutboxCallArg).data.eventType);
 }
 function getOutboxPayload(eventType: string): Record<string, unknown> | undefined {
   const call = mockOutboxCreate.mock.calls.find(
-    (c) => (c[0] as OutboxCallArg).data.eventType === eventType,
+    (c: unknown[]) => (c[0] as OutboxCallArg).data.eventType === eventType,
   );
   return call ? (call[0] as OutboxCallArg).data.payload : undefined;
 }
@@ -465,7 +465,7 @@ describe('G. Resource service — outbox on status change', () => {
     mockAssignmentFindFirst.mockResolvedValue(null);
 
     const { updateResource } = await import('../modules/resource/resource.service');
-    await updateResource(resourceId, { status: 'FAILED' });
+    await updateResource(resourceId, { status: 'FAILED' }, { userId: 'admin-1', role: 'ADMIN' });
 
     expect(getOutboxEventTypes()).toContain(EventType.RESOURCE_STATUS_CHANGED);
   });
@@ -476,7 +476,7 @@ describe('G. Resource service — outbox on status change', () => {
     mockAssignmentFindFirst.mockResolvedValue(null);
 
     const { updateResource } = await import('../modules/resource/resource.service');
-    await updateResource(resourceId, { status: 'FAILED' });
+    await updateResource(resourceId, { status: 'FAILED' }, { userId: 'admin-1', role: 'ADMIN' });
 
     const types = getOutboxEventTypes();
     expect(types).toContain(EventType.RESOURCE_STATUS_CHANGED);
@@ -488,7 +488,7 @@ describe('G. Resource service — outbox on status change', () => {
     mockResourceUpdate.mockResolvedValue(makeResource('AVAILABLE'));
 
     const { updateResource } = await import('../modules/resource/resource.service');
-    await updateResource(resourceId, { name: 'New Name' });
+    await updateResource(resourceId, { name: 'New Name' }, { userId: 'admin-1', role: 'ADMIN' });
 
     expect(mockOutboxCreate).not.toHaveBeenCalled();
   });
@@ -499,7 +499,7 @@ describe('G. Resource service — outbox on status change', () => {
     mockAssignmentFindFirst.mockResolvedValue({ id: 'assign-active' });
 
     const { updateResource } = await import('../modules/resource/resource.service');
-    await updateResource(resourceId, { status: 'FAILED' });
+    await updateResource(resourceId, { status: 'FAILED' }, { userId: 'admin-1', role: 'ADMIN' });
 
     const payload = getOutboxPayload(EventType.RESOURCE_FAILURE_DETECTED);
     expect(payload?.['activeAssignmentId']).toBe('assign-active');
