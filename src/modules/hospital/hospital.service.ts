@@ -43,6 +43,7 @@ export const createHospital = async (input: CreateHospitalInput) => {
   // Invalidate list cache
   const cache = getCacheService();
   await cache.del(CacheKeys.HOSPITAL_LIST);
+  await cache.delPattern('hospital:list:*');
 
   return hospital;
 };
@@ -54,14 +55,14 @@ export const getHospitals = async (
 ) => {
   const cache = getCacheService();
 
-  // Only cache the default (no-filter) first-page query
-  const isDefaultQuery =
-    !filters.status &&
-    pagination.page === 1 &&
-    pagination.limit === config.pagination.defaultLimit;
+  // Build a deterministic cache key from all query params
+  // Skip cache for OPERATOR (they see filtered data by userId — not safe to share)
+  const cacheKey = CacheKeys.HOSPITAL_LIST_QUERY(
+    `s:${filters.status ?? ''}_p:${pagination.page}_l:${pagination.limit}`,
+  );
 
-  if (isDefaultQuery && user.role !== 'OPERATOR') {
-    const cached = await cache.get<PaginatedResult<unknown>>(CacheKeys.HOSPITAL_LIST);
+  if (user.role !== 'OPERATOR') {
+    const cached = await cache.get<PaginatedResult<unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -113,8 +114,9 @@ export const getHospitals = async (
     },
   };
 
-  if (isDefaultQuery && user.role !== 'OPERATOR') {
-    await cache.set(CacheKeys.HOSPITAL_LIST, result);
+  if (user.role !== 'OPERATOR') {
+    // Hospital data changes infrequently — cache for 5 minutes
+    await cache.set(cacheKey, result, 300);
   }
 
   return result;
@@ -255,6 +257,7 @@ export const updateHospital = async (
     CacheKeys.HOSPITAL_AVAILABILITY(id),
     CacheKeys.HOSPITAL_LIST,
   );
+  await cache.delPattern('hospital:list:*');
 
   return updated;
 };
@@ -288,6 +291,7 @@ export const assignOperator = async (id: string, operatorId: string) => {
     CacheKeys.HOSPITAL_AVAILABILITY(id),
     CacheKeys.HOSPITAL_LIST,
   );
+  await cache.delPattern('hospital:list:*');
 
   return updated;
 };
@@ -312,6 +316,7 @@ export const removeOperator = async (id: string) => {
     CacheKeys.HOSPITAL_AVAILABILITY(id),
     CacheKeys.HOSPITAL_LIST,
   );
+  await cache.delPattern('hospital:list:*');
 
   return updated;
 };
@@ -337,6 +342,7 @@ export const deactivateHospital = async (id: string) => {
     CacheKeys.HOSPITAL_AVAILABILITY(id),
     CacheKeys.HOSPITAL_LIST,
   );
+  await cache.delPattern('hospital:list:*');
 
   return updated;
 };

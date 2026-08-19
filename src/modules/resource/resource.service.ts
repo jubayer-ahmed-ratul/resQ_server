@@ -24,7 +24,6 @@ import { EventType } from '../../events/event.types';
 import { writeOutboxEventDirect } from '../../events/outbox/outbox.helper';
 import { getCacheService } from '../../cache/cache.service';
 import { CacheKeys } from '../../cache/cache.interface';
-import config from '../../config';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../utils/pagination';
 import { AuthUser } from '../../middlewares/auth';
 
@@ -44,6 +43,7 @@ export const createResource = async (input: CreateResourceInput) => {
   // Invalidate list cache on new resource creation
   const cache = getCacheService();
   await cache.del(CacheKeys.RESOURCE_LIST);
+  await cache.delPattern('resource:list:*');
 
   return resource;
 };
@@ -55,17 +55,14 @@ export const getResources = async (
 ) => {
   const cache = getCacheService();
 
-  // Build a deterministic cache key that includes filters and pagination
-  // Only cache the first page with no filters (most common case)
-  // Filtered/paginated views skip cache to avoid unbounded key space
-  const isDefaultQuery =
-    !filters.type &&
-    !filters.status &&
-    pagination.page === 1 &&
-    pagination.limit === config.pagination.defaultLimit;
+  // Build a deterministic cache key from all query params
+  // Skip cache for OPERATOR (they see filtered data by userId — not safe to share)
+  const cacheKey = CacheKeys.RESOURCE_LIST_QUERY(
+    `t:${filters.type ?? ''}_s:${filters.status ?? ''}_p:${pagination.page}_l:${pagination.limit}`,
+  );
 
-  if (isDefaultQuery && user.role !== 'OPERATOR') {
-    const cached = await cache.get<PaginatedResult<unknown>>(CacheKeys.RESOURCE_LIST);
+  if (user.role !== 'OPERATOR') {
+    const cached = await cache.get<PaginatedResult<unknown>>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -116,8 +113,9 @@ export const getResources = async (
     },
   };
 
-  if (isDefaultQuery && user.role !== 'OPERATOR') {
-    await cache.set(CacheKeys.RESOURCE_LIST, result);
+  if (user.role !== 'OPERATOR') {
+    // Resource data changes infrequently — cache for 5 minutes
+    await cache.set(cacheKey, result, 300);
   }
 
   return result;
@@ -199,6 +197,7 @@ export const updateResource = async (
   // Invalidate cache: individual resource + resource list
   const cache = getCacheService();
   await cache.del(CacheKeys.RESOURCE_BY_ID(id), CacheKeys.RESOURCE_LIST);
+  await cache.delPattern('resource:list:*');
 
   // Publish RESOURCE_STATUS_CHANGED when status changes
   if (input.status !== undefined && input.status !== resource.status) {
@@ -260,6 +259,7 @@ export const assignOperator = async (id: string, operatorId: string) => {
 
   const cache = getCacheService();
   await cache.del(CacheKeys.RESOURCE_BY_ID(id), CacheKeys.RESOURCE_LIST);
+  await cache.delPattern('resource:list:*');
 
   return updated;
 };
@@ -280,6 +280,7 @@ export const removeOperator = async (id: string) => {
 
   const cache = getCacheService();
   await cache.del(CacheKeys.RESOURCE_BY_ID(id), CacheKeys.RESOURCE_LIST);
+  await cache.delPattern('resource:list:*');
 
   return updated;
 };
@@ -301,6 +302,7 @@ export const deactivateResource = async (id: string) => {
 
   const cache = getCacheService();
   await cache.del(CacheKeys.RESOURCE_BY_ID(id), CacheKeys.RESOURCE_LIST);
+  await cache.delPattern('resource:list:*');
 
   return updated;
 };

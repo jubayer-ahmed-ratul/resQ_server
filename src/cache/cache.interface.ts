@@ -47,8 +47,10 @@ export interface CacheService {
 
 export const CacheKeys = {
   RESOURCE_LIST: 'resource:list',
+  RESOURCE_LIST_QUERY: (key: string) => `resource:list:${key}`,
   RESOURCE_BY_ID: (id: string) => `resource:${id}`,
   HOSPITAL_LIST: 'hospital:list',
+  HOSPITAL_LIST_QUERY: (key: string) => `hospital:list:${key}`,
   HOSPITAL_BY_ID: (id: string) => `hospital:${id}`,
   HOSPITAL_AVAILABILITY: (id: string) => `hospital:${id}:availability`,
 } as const;
