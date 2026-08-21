@@ -23,8 +23,9 @@ export const createIncident = async (
 ): Promise<void> => {
   const input = req.body as CreateIncidentInput;
   const userId = req.user!.userId;
+  const userRole = req.user!.role;
 
-  const incident = await incidentService.createIncident(input, userId);
+  const incident = await incidentService.createIncident(input, userId, userRole);
 
   await writeAuditLog({
     actorId: req.user!.userId,

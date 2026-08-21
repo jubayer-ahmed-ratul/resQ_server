@@ -138,13 +138,14 @@ const updateStatusSchema = z.object({
 
 /**
  * POST /api/incidents
- * CITIZEN, ADMIN, COORDINATOR — create an emergency report.
- * OPERATOR cannot create incidents.
+ * CITIZEN, OPERATOR, ADMIN, COORDINATOR — create an emergency report.
+ * OPERATOR/ADMIN-created incidents → auto VALIDATED
+ * CITIZEN-created incidents → PENDING (requires COORDINATOR approval)
  */
 router.post(
   '/',
   authenticate,
-  requireRoles('CITIZEN', 'ADMIN', 'COORDINATOR'),
+  requireRoles('CITIZEN', 'ADMIN', 'COORDINATOR', 'OPERATOR'),
   idempotency(),
   validate(createIncidentSchema),
   catchAsync(incidentController.createIncident),
@@ -194,7 +195,9 @@ router.patch(
 
 /**
  * PATCH /api/incidents/:id/validate
- * ADMIN / COORDINATOR only — moves PENDING → VALIDATED.
+ * COORDINATOR / ADMIN only — moves PENDING → VALIDATED.
+ * Only needed for CITIZEN-created incidents.
+ * OPERATOR-created incidents are auto-validated on creation.
  */
 router.patch(
   '/:id/validate',

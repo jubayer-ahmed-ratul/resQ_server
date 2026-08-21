@@ -35,7 +35,12 @@ function touchesPriorityFields(input: UpdateIncidentInput): boolean {
 export const createIncident = async (
   input: CreateIncidentInput,
   userId: string,
+  userRole: string,
 ) => {
+  // OPERATOR-created incidents are auto-validated — no coordinator approval needed.
+  // CITIZEN-created incidents start as PENDING and require COORDINATOR approval.
+  const initialStatus = (userRole === 'OPERATOR' || userRole === 'ADMIN') ? 'VALIDATED' : 'PENDING';
+
   const incident = await prisma.incident.create({
     data: {
       title: input.title,
@@ -48,6 +53,7 @@ export const createIncident = async (
       environmentalCondition: input.environmentalCondition ?? null,
       resourceRequirements: input.resourceRequirements,
       createdById: userId,
+      status: initialStatus,
     },
   });
 
@@ -338,13 +344,24 @@ export const cancelIncident = async (
 // ─── Validate ─────────────────────────────────────────────────────────────────
 
 export const validateIncident = async (id: string) => {
-  const incident = await prisma.incident.findUnique({ where: { id } });
+  const incident = await prisma.incident.findUnique({
+    where: { id },
+    include: { createdBy: { select: { role: true } } },
+  });
   if (!incident) {
     throw new AppError('Incident not found.', httpStatus.NOT_FOUND);
   }
   if (incident.status !== 'PENDING') {
     throw new AppError(
       `Cannot validate an incident with status "${incident.status}". Only PENDING incidents can be validated.`,
+      httpStatus.BAD_REQUEST,
+    );
+  }
+  // Only CITIZEN-created incidents need coordinator approval.
+  // OPERATOR/ADMIN-created incidents are auto-validated on creation.
+  if (incident.createdBy.role !== 'CITIZEN') {
+    throw new AppError(
+      'This incident was created by an OPERATOR or ADMIN and was auto-validated. No manual approval needed.',
       httpStatus.BAD_REQUEST,
     );
   }
