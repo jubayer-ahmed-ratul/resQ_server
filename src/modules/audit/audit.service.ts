@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma';
+import logger from '../../lib/logger';
 import { AuditLogInput, AuditLogFilters } from './audit.interface';
 import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../utils/pagination';
 
@@ -21,7 +22,11 @@ export const writeAuditLog = async (input: AuditLogInput): Promise<void> => {
   } catch (err) {
     // Audit logging must never break the main operation.
     // Log the failure but do not throw.
-    console.error('[Audit] Failed to write audit log:', err);
+    logger.error('[Audit] Failed to write audit log', {
+      operation: 'writeAuditLog',
+      errorCode: 'DATABASE_ERROR',
+      message: (err as Error).message,
+    });
   }
 };
 

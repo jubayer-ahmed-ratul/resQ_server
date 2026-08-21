@@ -127,7 +127,12 @@ async function processJob(job: Job): Promise<void> {
 
     case EventType.INCIDENT_UPDATED:
     case EventType.REOPTIMIZATION_COMPLETED:
-      console.log(`[EventWorker] Event acknowledged (no handler): ${eventType}`);
+      logger.info(`[EventWorker] Event acknowledged (no handler): ${eventType}`, {
+        operation: 'processJob',
+        eventId,
+        eventType,
+        jobId: job.id,
+      });
       break;
 
     default:

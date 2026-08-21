@@ -135,20 +135,22 @@ export const updateIncident = async (
 };
 
 /**
- * PATCH /api/incidents/:id/validate
+ * PATCH /api/incidents/:id/approve
+ * COORDINATOR / ADMIN only — moves PENDING → APPROVED.
+ * After approval, resource/hospital assignment can begin.
  */
-export const validateIncident = async (
+export const approveIncident = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
-  const incident = await incidentService.validateIncident(req.params['id']!);
+  const incident = await incidentService.approveIncident(req.params['id']!);
 
   await writeAuditLog({
     actorId: req.user!.userId,
     action: 'APPROVE',
     entity: 'INCIDENT',
     entityId: incident.id,
-    details: { status: 'VALIDATED' },
+    details: { status: 'APPROVED' },
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   });
@@ -157,7 +159,38 @@ export const validateIncident = async (
     res,
     statusCode: httpStatus.OK,
     success: true,
-    message: 'Incident validated successfully.',
+    message: 'Incident approved successfully.',
+    data: incident,
+  });
+};
+
+/**
+ * PATCH /api/incidents/:id/reject
+ * COORDINATOR / ADMIN only — moves PENDING → REJECTED.
+ * Rejected incidents cannot be assigned resources or enter operational workflow.
+ */
+export const rejectIncident = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const reason = (req.body as { reason?: string } | undefined)?.reason;
+  const incident = await incidentService.rejectIncident(req.params['id']!, reason);
+
+  await writeAuditLog({
+    actorId: req.user!.userId,
+    action: 'REJECT',
+    entity: 'INCIDENT',
+    entityId: incident.id,
+    details: { status: 'REJECTED', reason },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
+  sendResponse({
+    res,
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Incident rejected successfully.',
     data: incident,
   });
 };

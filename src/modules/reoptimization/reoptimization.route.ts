@@ -71,18 +71,3 @@ assignmentReoptimizeRouter.post(
   catchAsync(reoptimizationController.reoptimizeAssignment),
 );
 
-// ─── Sub-router for incident re-optimization history ─────────────────────────
-// Mounted at /api/incidents via incident.route.ts
-
-export const incidentReoptimizationRouter = Router({ mergeParams: true });
-
-/**
- * GET /api/incidents/:id/reoptimizations
- * ADMIN, COORDINATOR only — full re-optimization history for an incident
- */
-incidentReoptimizationRouter.get(
-  '/',
-  authenticate,
-  authorizeRoles('ADMIN', 'COORDINATOR'),
-  catchAsync(reoptimizationController.getReoptimizationLogsByIncident),
-);

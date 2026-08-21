@@ -14,6 +14,7 @@
 
 import { Job } from 'bullmq';
 import { DomainEvent, PriorityCalculatedPayload } from '../event.interface';
+import logger from '../../lib/logger';
 
 export async function handlePriorityCalculated(
   job: Job<unknown>,
@@ -21,9 +22,14 @@ export async function handlePriorityCalculated(
   const event = job.data as DomainEvent<PriorityCalculatedPayload>;
   const { incidentId, priorityScore } = event.payload;
 
-  console.log(
-    `[PriorityCalculatedHandler] Incident ${incidentId} — ` +
-    `priority score: ${priorityScore} (job #${job.id})`,
+  logger.info(
+    `[PriorityCalculatedHandler] Incident ${incidentId} — priority score: ${priorityScore}`,
+    {
+      operation: 'handlePriorityCalculated',
+      incidentId,
+      priorityScore,
+      jobId: job.id,
+    },
   );
 
   // Future: notify coordinators, update dashboard, trigger analytics pipeline.

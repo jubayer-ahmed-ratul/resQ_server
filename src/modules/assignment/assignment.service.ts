@@ -1,5 +1,6 @@
 import httpStatus from 'http-status';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { IncidentStatus as PrismaIncidentStatus } from '@prisma/client';
 import prisma from '../../lib/prisma';
 import { AppError } from '../../utils/errors';
 import logger from '../../lib/logger';
@@ -20,10 +21,11 @@ import { PaginationParams, PaginatedResult, buildPaginationMeta } from '../../ut
 import { AuthUser } from '../../middlewares/auth';
 
 // ─── Eligible incident statuses for assignment ────────────────────────────────
-// An incident must be VALIDATED or PROCESSING before it can be ASSIGNED.
-// PENDING incidents must first be validated by a coordinator.
+// An incident must be APPROVED before it can be ASSIGNED.
+// PENDING incidents must first be approved by a coordinator.
+// REJECTED incidents can never be assigned.
 
-const ASSIGNABLE_INCIDENT_STATUSES = ['VALIDATED', 'PROCESSING'];
+const ASSIGNABLE_INCIDENT_STATUSES = ['APPROVED'];
 
 // ─── Shared include shape ─────────────────────────────────────────────────────
 
@@ -79,7 +81,7 @@ export const createAssignment = async (input: CreateAssignmentInput) => {
       }
       if (!ASSIGNABLE_INCIDENT_STATUSES.includes(incident.status)) {
         throw new AppError(
-          `${ASSIGNMENT_ERRORS.INCIDENT_NOT_ELIGIBLE} Current status: "${incident.status}". Required: VALIDATED or PROCESSING.`,
+          `${ASSIGNMENT_ERRORS.INCIDENT_NOT_ELIGIBLE} Current status: "${incident.status}". Required: APPROVED.`,
           httpStatus.CONFLICT,
         );
       }
@@ -264,10 +266,10 @@ export const completeAssignment = async (id: string) => {
       data: { status: 'AVAILABLE' },
     });
 
-    // Incident → DISPATCHED (next valid operational status after ASSIGNED)
+    // Incident → IN_PROGRESS (next valid operational status after ASSIGNED)
     await tx.incident.update({
       where: { id: assignment.incidentId },
-      data: { status: 'DISPATCHED' },
+      data: { status: 'IN_PROGRESS' as PrismaIncidentStatus },
     });
 
     // Outbox: ASSIGNMENT_COMPLETED
@@ -324,8 +326,8 @@ export const cancelAssignment = async (id: string) => {
       data: { status: 'AVAILABLE' },
     });
 
-    // Incident → PROCESSING (back to pre-assignment operational state)
-    // Rationale: incident still needs attention — return to PROCESSING
+    // Incident → APPROVED (back to pre-assignment operational state)
+    // Rationale: incident still needs attention — return to APPROVED
     // so coordinators can assign a different resource.
     const incident = await tx.incident.findUnique({
       where: { id: assignment.incidentId },
@@ -333,7 +335,7 @@ export const cancelAssignment = async (id: string) => {
     if (incident && incident.status === 'ASSIGNED') {
       await tx.incident.update({
         where: { id: assignment.incidentId },
-        data: { status: 'PROCESSING' },
+        data: { status: 'APPROVED' as PrismaIncidentStatus },
       });
     }
 

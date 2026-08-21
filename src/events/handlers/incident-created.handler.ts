@@ -18,6 +18,7 @@ import { calculateAndSaveIncidentPriority } from '../../modules/decision/decisio
 import { EventType } from '../event.types';
 import { createEvent } from '../event.publisher';
 import { writeOutboxEventDirect } from '../outbox/outbox.helper';
+import logger from '../../lib/logger';
 
 export async function handleIncidentCreated(
   job: Job<unknown>,
@@ -25,7 +26,11 @@ export async function handleIncidentCreated(
   const event = job.data as DomainEvent<IncidentCreatedPayload>;
   const { incidentId } = event.payload;
 
-  console.log(`[IncidentCreatedHandler] Calculating priority for incident ${incidentId}`);
+  logger.info(`[IncidentCreatedHandler] Calculating priority for incident ${incidentId}`, {
+    operation: 'handleIncidentCreated',
+    incidentId,
+    jobId: job.id,
+  });
 
   const result = await calculateAndSaveIncidentPriority(incidentId);
 
@@ -36,7 +41,13 @@ export async function handleIncidentCreated(
   });
   await writeOutboxEventDirect(priorityEvent);
 
-  console.log(
+  logger.info(
     `[IncidentCreatedHandler] Priority ${result.priorityScore} calculated for incident ${incidentId}`,
+    {
+      operation: 'handleIncidentCreated',
+      incidentId,
+      priorityScore: result.priorityScore,
+      jobId: job.id,
+    },
   );
 }

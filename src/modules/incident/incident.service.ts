@@ -1,4 +1,5 @@
 import httpStatus from 'http-status';
+import { IncidentStatus as PrismaIncidentStatus, IncidentSeverity as PrismaIncidentSeverity } from '@prisma/client';
 import prisma from '../../lib/prisma';
 import { AppError } from '../../utils/errors';
 import {
@@ -30,6 +31,14 @@ function touchesPriorityFields(input: UpdateIncidentInput): boolean {
   return PRIORITY_FIELDS.some((field) => input[field] !== undefined);
 }
 
+// ─── Shared include shape ─────────────────────────────────────────────────────
+
+const incidentInclude = {
+  createdBy: {
+    select: { id: true, name: true, email: true, role: true },
+  },
+} as const;
+
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 export const createIncident = async (
@@ -37,15 +46,16 @@ export const createIncident = async (
   userId: string,
   userRole: string,
 ) => {
-  // OPERATOR-created incidents are auto-validated — no coordinator approval needed.
+  // OPERATOR/ADMIN-created incidents are auto-approved — no coordinator approval needed.
   // CITIZEN-created incidents start as PENDING and require COORDINATOR approval.
-  const initialStatus = (userRole === 'OPERATOR' || userRole === 'ADMIN') ? 'VALIDATED' : 'PENDING';
+  const initialStatus =
+    userRole === 'OPERATOR' || userRole === 'ADMIN' ? 'APPROVED' : 'PENDING';
 
   const incident = await prisma.incident.create({
     data: {
       title: input.title,
       description: input.description,
-      severity: input.severity,
+      severity: input.severity as PrismaIncidentSeverity,
       affectedPeople: input.affectedPeople,
       latitude: input.latitude,
       longitude: input.longitude,
@@ -53,11 +63,13 @@ export const createIncident = async (
       environmentalCondition: input.environmentalCondition ?? null,
       resourceRequirements: input.resourceRequirements,
       createdById: userId,
-      status: initialStatus,
+      status: initialStatus as PrismaIncidentStatus,
     },
+    include: incidentInclude,
   });
 
-  // Publish INCIDENT_CREATED via outbox
+  // Publish INCIDENT_CREATED via outbox — the event worker calculates priority
+  // asynchronously (avoids blocking the response and duplicate calculation).
   await writeOutboxEventDirect(
     createEvent(EventType.INCIDENT_CREATED, {
       incidentId:  incident.id,
@@ -67,23 +79,7 @@ export const createIncident = async (
     }),
   );
 
-  // Calculate and persist priority score (synchronous — included in response)
-  await calculateAndSaveIncidentPriority(incident.id);
-
-  const created = await prisma.incident.findUnique({
-    where: { id: incident.id },
-    include: {
-      createdBy: {
-        select: { id: true, name: true, email: true, role: true },
-      },
-    },
-  });
-
-  if (!created) {
-    throw new AppError('Incident not found after creation.', httpStatus.INTERNAL_SERVER_ERROR);
-  }
-
-  return created;
+  return incident;
 };
 
 // ─── List ─────────────────────────────────────────────────────────────────────
@@ -123,10 +119,8 @@ export const getIncidents = async (
     }
   }
 
-  if (sort === 'priority') {
-    if (!filters.status) {
-      where['status'] = { notIn: ['RESOLVED', 'CANCELLED'] };
-    }
+  if (sort === 'priority' && !filters.status) {
+    where['status'] = { notIn: ['COMPLETED', 'CANCELLED'] };
   }
 
   const orderBy =
@@ -134,48 +128,30 @@ export const getIncidents = async (
       ? [{ priorityScore: 'desc' as const }, { createdAt: 'desc' as const }]
       : [{ severity: 'desc' as const }, { createdAt: 'desc' as const }];
 
-  // If pagination provided, return paginated result
-  if (pagination) {
-    const { skip, take } = buildPaginationMeta(pagination);
-    const [total, items] = await Promise.all([
-      prisma.incident.count({ where }),
-      prisma.incident.findMany({
-        where,
-        orderBy,
-        skip,
-        take,
-        include: {
-          createdBy: {
-            select: { id: true, name: true, email: true, role: true },
-          },
-        },
-      }),
-    ]);
+  const { skip, take } = buildPaginationMeta(pagination ?? { page: 1, limit: 20 });
+  const [total, items] = await Promise.all([
+    prisma.incident.count({ where }),
+    prisma.incident.findMany({
+      where,
+      orderBy,
+      skip,
+      take,
+      include: incidentInclude,
+    }),
+  ]);
 
-    const result: PaginatedResult<typeof items[number]> = {
-      data: items,
-      pagination: {
-        page: pagination.page,
-        limit: pagination.limit,
-        total,
-        totalPages: Math.ceil(total / pagination.limit),
-        hasNextPage: pagination.page * pagination.limit < total,
-        hasPrevPage: pagination.page > 1,
-      },
-    };
-    return result;
-  }
-
-  // Legacy non-paginated path (kept for backward compatibility with internal callers)
-  return prisma.incident.findMany({
-    where,
-    orderBy,
-    include: {
-      createdBy: {
-        select: { id: true, name: true, email: true, role: true },
-      },
+  const result: PaginatedResult<typeof items[number]> = {
+    data: items,
+    pagination: {
+      page: pagination?.page ?? 1,
+      limit: pagination?.limit ?? 20,
+      total,
+      totalPages: Math.ceil(total / (pagination?.limit ?? 20)),
+      hasNextPage: (pagination?.page ?? 1) * (pagination?.limit ?? 20) < total,
+      hasPrevPage: (pagination?.page ?? 1) > 1,
     },
-  });
+  };
+  return result;
 };
 
 // ─── Single ───────────────────────────────────────────────────────────────────
@@ -183,11 +159,7 @@ export const getIncidents = async (
 export const getIncidentById = async (id: string) => {
   const incident = await prisma.incident.findUnique({
     where: { id },
-    include: {
-      createdBy: {
-        select: { id: true, name: true, email: true, role: true },
-      },
-    },
+    include: incidentInclude,
   });
   if (!incident) {
     throw new AppError('Incident not found.', httpStatus.NOT_FOUND);
@@ -233,6 +205,7 @@ export const updateIncident = async (
       ...(input.environmentalCondition !== undefined && { environmentalCondition: input.environmentalCondition }),
       ...(input.resourceRequirements !== undefined && { resourceRequirements: input.resourceRequirements }),
     },
+    include: incidentInclude,
   });
 
   // Publish INCIDENT_UPDATED event
@@ -247,16 +220,7 @@ export const updateIncident = async (
     await calculateAndSaveIncidentPriority(updated.id);
   }
 
-  const result = await prisma.incident.findUnique({
-    where: { id: updated.id },
-    include: { createdBy: { select: { id: true, name: true, email: true, role: true } } },
-  });
-
-  if (!result) {
-    throw new AppError('Incident not found after update.', httpStatus.INTERNAL_SERVER_ERROR);
-  }
-
-  return result;
+  return updated;
 };
 
 // ─── Get incident assignments ─────────────────────────────────────────────────
@@ -295,7 +259,7 @@ export const getIncidentAssignments = async (id: string) => {
 
 /**
  * CITIZEN: can cancel only their own PENDING incident.
- * ADMIN / COORDINATOR: can cancel any incident that is not already RESOLVED or CANCELLED.
+ * ADMIN / COORDINATOR: can cancel any incident that is not already COMPLETED or CANCELLED.
  */
 export const cancelIncident = async (
   id: string,
@@ -323,8 +287,9 @@ export const cancelIncident = async (
       );
     }
   } else {
-    // ADMIN / COORDINATOR — cannot cancel already resolved/cancelled
-    if (incident.status === 'RESOLVED' || incident.status === 'CANCELLED') {
+    // ADMIN / COORDINATOR — cannot cancel already completed/cancelled
+    const statusStr = incident.status as string;
+    if (statusStr === 'COMPLETED' || statusStr === 'CANCELLED') {
       throw new AppError(
         `Incident is already ${incident.status.toLowerCase()} and cannot be cancelled.`,
         httpStatus.BAD_REQUEST,
@@ -335,15 +300,18 @@ export const cancelIncident = async (
   return prisma.incident.update({
     where: { id },
     data: { status: 'CANCELLED' },
-    include: {
-      createdBy: { select: { id: true, name: true, email: true, role: true } },
-    },
+    include: incidentInclude,
   });
 };
 
-// ─── Validate ─────────────────────────────────────────────────────────────────
+// ─── Approve (COORDINATOR/ADMIN) ─────────────────────────────────────────────
 
-export const validateIncident = async (id: string) => {
+/**
+ * COORDINATOR/ADMIN approves a CITIZEN-created PENDING incident.
+ * PENDING → APPROVED
+ * After this, resource assignment can begin.
+ */
+export const approveIncident = async (id: string) => {
   const incident = await prisma.incident.findUnique({
     where: { id },
     include: { createdBy: { select: { role: true } } },
@@ -353,22 +321,52 @@ export const validateIncident = async (id: string) => {
   }
   if (incident.status !== 'PENDING') {
     throw new AppError(
-      `Cannot validate an incident with status "${incident.status}". Only PENDING incidents can be validated.`,
+      `Cannot approve an incident with status "${incident.status}". Only PENDING incidents can be approved.`,
       httpStatus.BAD_REQUEST,
     );
   }
-  // Only CITIZEN-created incidents need coordinator approval.
-  // OPERATOR/ADMIN-created incidents are auto-validated on creation.
+  // OPERATOR/ADMIN-created incidents are already APPROVED — no manual action needed.
   if (incident.createdBy.role !== 'CITIZEN') {
     throw new AppError(
-      'This incident was created by an OPERATOR or ADMIN and was auto-validated. No manual approval needed.',
+      'This incident was created by an OPERATOR or ADMIN and was auto-approved on creation.',
       httpStatus.BAD_REQUEST,
     );
   }
   return prisma.incident.update({
     where: { id },
-    data: { status: 'VALIDATED' },
-    include: { createdBy: { select: { id: true, name: true, email: true, role: true } } },
+    data: { status: 'APPROVED' as PrismaIncidentStatus },
+    include: incidentInclude,
+  });
+};
+
+// ─── Reject (COORDINATOR/ADMIN) ───────────────────────────────────────────────
+
+/**
+ * COORDINATOR/ADMIN rejects a CITIZEN-created PENDING incident.
+ * PENDING → REJECTED
+ * No resource assignment or operational action will follow.
+ */
+export const rejectIncident = async (id: string, reason?: string) => {
+  const incident = await prisma.incident.findUnique({
+    where: { id },
+    include: { createdBy: { select: { role: true } } },
+  });
+  if (!incident) {
+    throw new AppError('Incident not found.', httpStatus.NOT_FOUND);
+  }
+  if (incident.status !== 'PENDING') {
+    throw new AppError(
+      `Cannot reject an incident with status "${incident.status}". Only PENDING incidents can be rejected.`,
+      httpStatus.BAD_REQUEST,
+    );
+  }
+  return prisma.incident.update({
+    where: { id },
+    data: {
+      status: 'REJECTED' as PrismaIncidentStatus,
+      ...(reason && { environmentalCondition: `REJECTED: ${reason}` }),
+    },
+    include: incidentInclude,
   });
 };
 
@@ -384,7 +382,7 @@ export const updateIncidentStatus = async (
   }
 
   const currentStatus = incident.status as IncidentStatus;
-  const nextStatus = input.status;
+  const nextStatus = input.status as IncidentStatus;
   const allowed = ALLOWED_STATUS_TRANSITIONS[currentStatus];
 
   if (!allowed.includes(nextStatus)) {
@@ -396,7 +394,7 @@ export const updateIncidentStatus = async (
 
   return prisma.incident.update({
     where: { id },
-    data: { status: nextStatus },
-    include: { createdBy: { select: { id: true, name: true, email: true, role: true } } },
+    data: { status: nextStatus as PrismaIncidentStatus },
+    include: incidentInclude,
   });
 };

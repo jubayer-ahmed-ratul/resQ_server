@@ -24,6 +24,7 @@ import { EventType } from '../event.types';
 import { createEvent } from '../event.publisher';
 import { writeOutboxEventDirect } from '../outbox/outbox.helper';
 import { ReoptimizationTrigger } from '../../modules/reoptimization/reoptimization.interface';
+import logger from '../../lib/logger';
 
 // Statuses that invalidate an existing assignment
 const FAILURE_STATUSES = new Set(['FAILED', 'MAINTENANCE', 'UNAVAILABLE']);
@@ -41,9 +42,16 @@ export async function handleResourceStatusChanged(
   const event = job.data as DomainEvent<ResourceStatusChangedPayload>;
   const { resourceId, resourceName, previousStatus, newStatus } = event.payload;
 
-  console.log(
-    `[ResourceStatusHandler] Resource "${resourceName}" (${resourceId}): ` +
-    `${previousStatus} → ${newStatus}`,
+  logger.info(
+    `[ResourceStatusHandler] Resource "${resourceName}" (${resourceId}): ${previousStatus} → ${newStatus}`,
+    {
+      operation: 'handleResourceStatusChanged',
+      resourceId,
+      resourceName,
+      previousStatus,
+      newStatus,
+      jobId: job.id,
+    },
   );
 
   if (!FAILURE_STATUSES.has(newStatus)) {
@@ -58,18 +66,28 @@ export async function handleResourceStatusChanged(
   });
 
   if (!activeAssignment) {
-    console.log(
-      `[ResourceStatusHandler] Resource "${resourceName}" has no active assignment — ` +
-      `no re-optimization needed.`,
+    logger.info(
+      `[ResourceStatusHandler] Resource "${resourceName}" has no active assignment — no re-optimization needed.`,
+      {
+        operation: 'handleResourceStatusChanged',
+        resourceId,
+        jobId: job.id,
+      },
     );
     return;
   }
 
   const trigger = STATUS_TO_TRIGGER[newStatus] ?? 'RESOURCE_UNAVAILABLE';
 
-  console.log(
-    `[ResourceStatusHandler] Resource "${resourceName}" is ${newStatus} ` +
-    `and has active assignment ${activeAssignment.id} — requesting re-optimization.`,
+  logger.info(
+    `[ResourceStatusHandler] Resource "${resourceName}" is ${newStatus} and has active assignment ${activeAssignment.id} — requesting re-optimization.`,
+    {
+      operation: 'handleResourceStatusChanged',
+      resourceId,
+      assignmentId: activeAssignment.id,
+      trigger,
+      jobId: job.id,
+    },
   );
 
   const reoptEvent = createEvent(EventType.REOPTIMIZATION_REQUESTED, {

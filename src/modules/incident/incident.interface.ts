@@ -3,11 +3,11 @@
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type IncidentStatus =
   | 'PENDING'
-  | 'VALIDATED'
-  | 'PROCESSING'
+  | 'APPROVED'
+  | 'REJECTED'
   | 'ASSIGNED'
-  | 'DISPATCHED'
-  | 'RESOLVED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
   | 'CANCELLED';
 export type TimeSensitivity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -16,27 +16,27 @@ export type TimeSensitivity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 /**
  * Allowed forward transitions for operational status changes.
  *
- * Rules:
- *   PENDING     → VALIDATED   (via /validate endpoint by ADMIN|COORDINATOR)
- *   VALIDATED   → PROCESSING  (by ADMIN|COORDINATOR)
- *   PROCESSING  → ASSIGNED    (by ADMIN|COORDINATOR)
- *   ASSIGNED    → DISPATCHED  (by ADMIN|COORDINATOR)
- *   DISPATCHED  → RESOLVED    (by ADMIN|COORDINATOR)
- *   any non-RESOLVED/CANCELLED → CANCELLED (by ADMIN|COORDINATOR only)
+ * PENDING     → APPROVED    (by COORDINATOR/ADMIN via /approve)
+ * PENDING     → REJECTED    (by COORDINATOR/ADMIN via /reject)
+ * APPROVED    → ASSIGNED    (by COORDINATOR/ADMIN when resource assigned)
+ * ASSIGNED    → IN_PROGRESS (by OPERATOR/COORDINATOR when task starts)
+ * IN_PROGRESS → COMPLETED   (by OPERATOR/COORDINATOR when task done)
+ * any active  → CANCELLED
  *
- * Citizens cannot perform any status transitions directly.
+ * OPERATOR/ADMIN-created incidents start as APPROVED automatically.
+ * REJECTED incidents cannot be transitioned further.
  */
 export const ALLOWED_STATUS_TRANSITIONS: Record<
   IncidentStatus,
   IncidentStatus[]
 > = {
-  PENDING: ['VALIDATED', 'CANCELLED'],
-  VALIDATED: ['PROCESSING', 'CANCELLED'],
-  PROCESSING: ['ASSIGNED', 'CANCELLED'],
-  ASSIGNED: ['DISPATCHED', 'CANCELLED'],
-  DISPATCHED: ['RESOLVED', 'CANCELLED'],
-  RESOLVED: [],
-  CANCELLED: [],
+  PENDING:     ['APPROVED', 'REJECTED', 'CANCELLED'],
+  APPROVED:    ['ASSIGNED', 'CANCELLED'],
+  REJECTED:    [],
+  ASSIGNED:    ['IN_PROGRESS', 'CANCELLED'],
+  IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+  COMPLETED:   [],
+  CANCELLED:   [],
 };
 
 // ─── Request / Response shapes ────────────────────────────────────────────────

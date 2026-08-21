@@ -17,11 +17,11 @@ const severityValues = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 const timeSensitivityValues = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 const statusValues = [
   'PENDING',
-  'VALIDATED',
-  'PROCESSING',
+  'APPROVED',
+  'REJECTED',
   'ASSIGNED',
-  'DISPATCHED',
-  'RESOLVED',
+  'IN_PROGRESS',
+  'COMPLETED',
   'CANCELLED',
 ] as const;
 
@@ -139,7 +139,7 @@ const updateStatusSchema = z.object({
 /**
  * POST /api/incidents
  * CITIZEN, OPERATOR, ADMIN, COORDINATOR — create an emergency report.
- * OPERATOR/ADMIN-created incidents → auto VALIDATED
+ * OPERATOR/ADMIN-created incidents → auto APPROVED
  * CITIZEN-created incidents → PENDING (requires COORDINATOR approval)
  */
 router.post(
@@ -194,16 +194,29 @@ router.patch(
 );
 
 /**
- * PATCH /api/incidents/:id/validate
- * COORDINATOR / ADMIN only — moves PENDING → VALIDATED.
+ * PATCH /api/incidents/:id/approve
+ * COORDINATOR / ADMIN only — moves PENDING → APPROVED.
  * Only needed for CITIZEN-created incidents.
- * OPERATOR-created incidents are auto-validated on creation.
+ * OPERATOR/ADMIN-created incidents are auto-approved on creation.
+ * After approval, resource/hospital assignment can begin.
  */
 router.patch(
-  '/:id/validate',
+  '/:id/approve',
   authenticate,
   requireRoles('ADMIN', 'COORDINATOR'),
-  catchAsync(incidentController.validateIncident),
+  catchAsync(incidentController.approveIncident),
+);
+
+/**
+ * PATCH /api/incidents/:id/reject
+ * COORDINATOR / ADMIN only — moves PENDING → REJECTED.
+ * Rejected incidents cannot be assigned resources or enter operational workflow.
+ */
+router.patch(
+  '/:id/reject',
+  authenticate,
+  requireRoles('ADMIN', 'COORDINATOR'),
+  catchAsync(incidentController.rejectIncident),
 );
 
 /**

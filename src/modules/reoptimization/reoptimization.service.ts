@@ -77,13 +77,12 @@ const assignmentInclude = {
 
 // ─── Operationally active incident statuses ───────────────────────────────────
 // An incident must be in one of these states for re-optimization to apply.
-// RESOLVED and CANCELLED incidents no longer need resource management.
+// COMPLETED and CANCELLED incidents no longer need resource management.
 
 const ACTIVE_INCIDENT_STATUSES = [
-  'VALIDATED',
-  'PROCESSING',
+  'APPROVED',
   'ASSIGNED',
-  'DISPATCHED',
+  'IN_PROGRESS',
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════

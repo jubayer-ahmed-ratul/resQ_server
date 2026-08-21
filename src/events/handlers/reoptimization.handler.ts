@@ -19,6 +19,7 @@ import { ReoptimizationTrigger, AccessCondition } from '../../modules/reoptimiza
 import { EventType } from '../event.types';
 import { createEvent } from '../event.publisher';
 import { writeOutboxEventDirect } from '../outbox/outbox.helper';
+import logger from '../../lib/logger';
 
 export async function handleReoptimizationRequested(
   job: Job<unknown>,
@@ -26,9 +27,15 @@ export async function handleReoptimizationRequested(
   const event = job.data as DomainEvent<ReoptimizationRequestedPayload>;
   const { incidentId, assignmentId, trigger, accessCondition } = event.payload;
 
-  console.log(
-    `[ReoptimizationHandler] Processing REOPTIMIZATION_REQUESTED — ` +
-    `assignment ${assignmentId}, trigger: ${trigger}`,
+  logger.info(
+    `[ReoptimizationHandler] Processing REOPTIMIZATION_REQUESTED — assignment ${assignmentId}, trigger: ${trigger}`,
+    {
+      operation: 'handleReoptimizationRequested',
+      incidentId,
+      assignmentId,
+      trigger,
+      jobId: job.id,
+    },
   );
 
   const result = await reoptimizeAssignment({
@@ -47,8 +54,14 @@ export async function handleReoptimizationRequested(
   });
   await writeOutboxEventDirect(completedEvent);
 
-  console.log(
-    `[ReoptimizationHandler] Completed — reoptimized: ${result.reoptimized}, ` +
-    `message: ${result.message}`,
+  logger.info(
+    `[ReoptimizationHandler] Completed — reoptimized: ${result.reoptimized}, message: ${result.message}`,
+    {
+      operation: 'handleReoptimizationRequested',
+      incidentId,
+      assignmentId,
+      reoptimized: result.reoptimized,
+      jobId: job.id,
+    },
   );
 }

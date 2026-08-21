@@ -68,7 +68,7 @@ router.get(
  * PATCH /api/assignments/:id/complete
  * ADMIN, COORDINATOR — complete any assignment.
  * OPERATOR — only assignments for their resources.
- * ACTIVE → COMPLETED, Resource → AVAILABLE, Incident → DISPATCHED
+ * ACTIVE → COMPLETED, Resource → AVAILABLE, Incident → IN_PROGRESS
  */
 router.patch(
   '/:id/complete',
@@ -81,7 +81,7 @@ router.patch(
 /**
  * PATCH /api/assignments/:id/cancel
  * ADMIN, COORDINATOR only
- * ACTIVE → CANCELLED, Resource → AVAILABLE, Incident → PROCESSING
+ * ACTIVE → CANCELLED, Resource → AVAILABLE, Incident → APPROVED
  */
 router.patch(
   '/:id/cancel',

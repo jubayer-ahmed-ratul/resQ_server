@@ -9,7 +9,6 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "start:worker": "node dist/workers/worker.js",
-    "test": "jest --runInBand",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
@@ -19,18 +18,6 @@
     "load:reoptimization": "k6 run load-tests/reoptimization.js",
     "load:spike": "k6 run load-tests/spike.js",
     "load:soak": "k6 run load-tests/soak.js"
-  },
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/__tests__/**/*.test.ts"
-    ],
-    "moduleFileExtensions": [
-      "ts",
-      "js",
-      "json"
-    ]
   },
   "dependencies": {
     "@prisma/client": "5.16.1",
@@ -57,9 +44,6 @@
   },
   "devDependencies": {
     "@types/ioredis": "^4.28.10",
-    "@types/jest": "^30.0.0",
-    "jest": "^30.4.2",
-    "ts-jest": "^29.4.12",
     "ts-node-dev": "2.0.0"
   }
 }

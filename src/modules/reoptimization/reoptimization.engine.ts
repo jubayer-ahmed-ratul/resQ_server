@@ -137,39 +137,6 @@ export function shouldPreempt(
   );
 }
 
-// ─── ETA-adjusted resource list ───────────────────────────────────────────────
-/**
- * applyAccessConditionPenalty
- *
- * For DIFFICULT access: returns resource candidates with a synthetic
- * latitude offset that extends apparent distance by the penalty multiplier.
- * This is a deterministic approximation — not real routing.
- *
- * For BLOCKED access: the current resource is excluded from candidates
- * (handled in service layer by excluding it from the resource list).
- *
- * NOTE: This approximation inflates straight-line distance to model
- * slower travel. It is not geographically precise. A real routing
- * integration would replace this in a future part.
- */
-export function applyAccessConditionPenalty(
-  resources: ResourceCandidate[],
-  _incidentLat: number,
-  _incidentLon: number,
-  condition: AccessCondition,
-): ResourceCandidate[] {
-  const multiplier = ACCESS_CONDITION_ETA_MULTIPLIER[condition];
-  if (multiplier === 1.0 || multiplier === Infinity) return resources;
-
-  // Inflate apparent distance by moving incident coords to simulate longer ETA.
-  // We achieve the multiplier by scaling the haversine input: stretching the
-  // incident location away from each resource proportionally.
-  // Implementation: return resources unchanged — the service passes a modified
-  // averageSpeedKmh (speed / multiplier) to the engine instead.
-  // This keeps the pure engine interface clean.
-  return resources;
-}
-
 // ─── Build alternative candidates list ───────────────────────────────────────
 /**
  * buildAlternativeCandidates

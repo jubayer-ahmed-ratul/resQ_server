@@ -17,15 +17,22 @@ import {
   AssignmentCancelledPayload,
 } from '../event.interface';
 import { EventType } from '../event.types';
+import logger from '../../lib/logger';
 
 export async function handleAssignmentCreated(
   job: Job<unknown>,
 ): Promise<void> {
   const event = job.data as DomainEvent<AssignmentCreatedPayload>;
   const { assignmentId, incidentId, resourceId } = event.payload;
-  console.log(
-    `[AssignmentHandler] CREATED — assignment ${assignmentId} ` +
-    `(incident: ${incidentId}, resource: ${resourceId})`,
+  logger.info(
+    `[AssignmentHandler] CREATED — assignment ${assignmentId} (incident: ${incidentId}, resource: ${resourceId})`,
+    {
+      operation: 'handleAssignmentCreated',
+      assignmentId,
+      incidentId,
+      resourceId,
+      jobId: job.id,
+    },
   );
 }
 
@@ -34,9 +41,15 @@ export async function handleAssignmentCompleted(
 ): Promise<void> {
   const event = job.data as DomainEvent<AssignmentCompletedPayload>;
   const { assignmentId, incidentId, resourceId } = event.payload;
-  console.log(
-    `[AssignmentHandler] COMPLETED — assignment ${assignmentId} ` +
-    `(incident: ${incidentId}, resource: ${resourceId})`,
+  logger.info(
+    `[AssignmentHandler] COMPLETED — assignment ${assignmentId} (incident: ${incidentId}, resource: ${resourceId})`,
+    {
+      operation: 'handleAssignmentCompleted',
+      assignmentId,
+      incidentId,
+      resourceId,
+      jobId: job.id,
+    },
   );
 }
 
@@ -45,9 +58,15 @@ export async function handleAssignmentCancelled(
 ): Promise<void> {
   const event = job.data as DomainEvent<AssignmentCancelledPayload>;
   const { assignmentId, incidentId, resourceId } = event.payload;
-  console.log(
-    `[AssignmentHandler] CANCELLED — assignment ${assignmentId} ` +
-    `(incident: ${incidentId}, resource: ${resourceId})`,
+  logger.info(
+    `[AssignmentHandler] CANCELLED — assignment ${assignmentId} (incident: ${incidentId}, resource: ${resourceId})`,
+    {
+      operation: 'handleAssignmentCancelled',
+      assignmentId,
+      incidentId,
+      resourceId,
+      jobId: job.id,
+    },
   );
 }
 
@@ -65,6 +84,10 @@ export async function handleAssignmentEvent(
     case EventType.ASSIGNMENT_CANCELLED:
       return handleAssignmentCancelled(job);
     default:
-      console.warn(`[AssignmentHandler] Unhandled event type: ${event.eventType}`);
+      logger.warn(`[AssignmentHandler] Unhandled event type: ${event.eventType}`, {
+        operation: 'handleAssignmentEvent',
+        eventType: event.eventType,
+        jobId: job.id,
+      });
   }
 }
